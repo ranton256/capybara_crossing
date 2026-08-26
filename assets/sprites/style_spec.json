@@ -1,0 +1,76 @@
+{
+  "_about": [
+    "Style envelopes for Capybara Crossing 16x16 sprites.",
+    "Measured from the packed frames after Gemini style-lock + nearest/box downscale."
+  ],
+  "asset_dir": "frames",
+  "families": {
+    "capybara": {
+      "_note": "Warm brown quadruped hero. Sleepy outline, top lighting.",
+      "hue_band": [8, 40],
+      "highlight_p95": [90, 150],
+      "no_underlight": true
+    },
+    "earth_prop": {
+      "_note": "Logs and brown critters share the capybara dirt family.",
+      "hue_band": [0, 50],
+      "highlight_p95": [80, 180],
+      "no_underlight": true
+    },
+    "vehicle_red": {
+      "hue_band": [350, 40],
+      "highlight_p95": [70, 180]
+    },
+    "vehicle_blue": {
+      "hue_band": [200, 300],
+      "highlight_p95": [60, 160]
+    },
+    "vehicle_green": {
+      "hue_band": [80, 140],
+      "highlight_p95": [80, 160],
+      "no_underlight": true
+    },
+    "tile_dirt": {
+      "hue_band": [10, 50],
+      "highlight_p95": [90, 200]
+    },
+    "tile_road": {
+      "hue_band": [0, 50],
+      "sat_max": 0.45,
+      "highlight_p95": [70, 180]
+    },
+    "tile_grass": {
+      "hue_band": [60, 140],
+      "highlight_p95": [120, 220]
+    },
+    "tile_mud": {
+      "hue_band": [0, 40],
+      "highlight_p95": [70, 180]
+    }
+  },
+  "sprites": {
+    "capy_up_1.png": {"family": "capybara"},
+    "capy_up_2.png": {"family": "capybara"},
+    "capy_down_1.png": {"family": "capybara"},
+    "capy_down_2.png": {"family": "capybara"},
+    "capy_left_1.png": {"family": "capybara"},
+    "capy_left_2.png": {"family": "capybara"},
+    "capy_right_1.png": {"family": "capybara"},
+    "capy_right_2.png": {"family": "capybara"},
+    "capy_defeat.png": {"family": "capybara"},
+    "log.png": {"family": "earth_prop"},
+    "monkey.png": {"family": "earth_prop"},
+    "parrot.png": {"family": "vehicle_red"},
+    "atv_red.png": {"family": "vehicle_red"},
+    "atv_blue.png": {"family": "vehicle_blue"},
+    "truck.png": {"family": "vehicle_green"},
+    "tile_start.png": {"family": "tile_dirt"},
+    "tile_path.png": {"family": "tile_road"},
+    "tile_median.png": {"family": "tile_grass"},
+    "tile_spa.png": {"family": "tile_mud"}
+  },
+  "exceptions": {
+    "_note": "Mud spa stones/steam can read as underlight on a 16x16 tile.",
+    "tile_spa.png": ["no_underlight"]
+  }
+}

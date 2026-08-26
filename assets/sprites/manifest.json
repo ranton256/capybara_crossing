@@ -1,0 +1,218 @@
+{
+  "name": "capybara_crossing",
+  "tile_size": 16,
+  "sheet_size": [
+    128,
+    128
+  ],
+  "image": "capybara_crossing.png",
+  "palette": "palette.json",
+  "frames": [
+    {
+      "name": "capy_up_1",
+      "x": 0,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 0,
+      "row": 0
+    },
+    {
+      "name": "capy_up_2",
+      "x": 16,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 1,
+      "row": 0
+    },
+    {
+      "name": "capy_down_1",
+      "x": 32,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 2,
+      "row": 0
+    },
+    {
+      "name": "capy_down_2",
+      "x": 48,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 3,
+      "row": 0
+    },
+    {
+      "name": "capy_left_1",
+      "x": 64,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 4,
+      "row": 0
+    },
+    {
+      "name": "capy_left_2",
+      "x": 80,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 5,
+      "row": 0
+    },
+    {
+      "name": "capy_right_1",
+      "x": 96,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 6,
+      "row": 0
+    },
+    {
+      "name": "capy_right_2",
+      "x": 112,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "col": 7,
+      "row": 0
+    },
+    {
+      "name": "capy_defeat",
+      "x": 0,
+      "y": 16,
+      "w": 16,
+      "h": 16,
+      "col": 0,
+      "row": 1
+    },
+    {
+      "name": "tile_start",
+      "x": 0,
+      "y": 32,
+      "w": 16,
+      "h": 16,
+      "col": 0,
+      "row": 2
+    },
+    {
+      "name": "tile_path",
+      "x": 16,
+      "y": 32,
+      "w": 16,
+      "h": 16,
+      "col": 1,
+      "row": 2
+    },
+    {
+      "name": "tile_median",
+      "x": 32,
+      "y": 32,
+      "w": 16,
+      "h": 16,
+      "col": 2,
+      "row": 2
+    },
+    {
+      "name": "tile_spa",
+      "x": 48,
+      "y": 32,
+      "w": 16,
+      "h": 16,
+      "col": 3,
+      "row": 2
+    },
+    {
+      "name": "atv_red",
+      "x": 0,
+      "y": 48,
+      "w": 16,
+      "h": 16,
+      "col": 0,
+      "row": 3
+    },
+    {
+      "name": "atv_blue",
+      "x": 16,
+      "y": 48,
+      "w": 16,
+      "h": 16,
+      "col": 1,
+      "row": 3
+    },
+    {
+      "name": "truck",
+      "x": 32,
+      "y": 48,
+      "w": 32,
+      "h": 16,
+      "col": 2,
+      "row": 3
+    },
+    {
+      "name": "monkey",
+      "x": 64,
+      "y": 48,
+      "w": 16,
+      "h": 16,
+      "col": 4,
+      "row": 3
+    },
+    {
+      "name": "parrot",
+      "x": 80,
+      "y": 48,
+      "w": 16,
+      "h": 16,
+      "col": 5,
+      "row": 3
+    },
+    {
+      "name": "log",
+      "x": 0,
+      "y": 64,
+      "w": 32,
+      "h": 16,
+      "col": 0,
+      "row": 4
+    }
+  ],
+  "animations": {
+    "idle_up": [
+      "capy_up_1",
+      "capy_up_2"
+    ],
+    "walk_down": [
+      "capy_down_1",
+      "capy_down_2"
+    ],
+    "walk_left": [
+      "capy_left_1",
+      "capy_left_2"
+    ],
+    "walk_right": [
+      "capy_right_1",
+      "capy_right_2"
+    ],
+    "defeat": [
+      "capy_defeat"
+    ]
+  },
+  "tiles": [
+    "tile_start",
+    "tile_path",
+    "tile_median",
+    "tile_spa"
+  ],
+  "hazards": [
+    "atv_red",
+    "atv_blue",
+    "truck",
+    "log",
+    "monkey",
+    "parrot"
+  ]
+}
