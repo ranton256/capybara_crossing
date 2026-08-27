@@ -1,0 +1,45 @@
+## Purpose
+
+Draws the static 12×7 environment tile grid from the sprite atlas as the first layer of the canvas rendering pipeline, establishing board layout and painter’s-algorithm background order before entities and HUD.
+
+## ADDED Requirements
+
+### Requirement: Simplified default board layout
+The system SHALL define a fixed twelve-column by seven-row board on the existing 576×336 canvas. Row 0 SHALL use spa tiles across all columns. Rows 1 and 3 SHALL use path tiles across all columns. Row 2 SHALL use median tiles across all columns. Rows 4, 5, and 6 SHALL use riverbank start tiles across all columns. The layout SHALL remain stable across frames until a later gameplay change modifies it.
+
+#### Scenario: Spa row at top
+- **WHEN** the default board layout is queried for row 0
+- **THEN** every column in that row SHALL map to the spa tile type
+
+#### Scenario: Two road lanes with one median
+- **WHEN** the default board layout is queried for rows 1 through 3
+- **THEN** row 1 SHALL map to path tiles, row 2 SHALL map to median tiles, and row 3 SHALL map to path tiles across all columns
+
+#### Scenario: Extended riverbank at bottom
+- **WHEN** the default board layout is queried for rows 4 through 6
+- **THEN** every column in each of those rows SHALL map to the riverbank start tile type
+
+### Requirement: Environment tiles drawn from sprite atlas
+The system SHALL draw each board cell using the 128×128 sprite atlas and only the four environment tile frames: riverbank start, path, median, and spa. Each tile SHALL be drawn at its grid cell position scaled by the existing integer scale factor (three). The game SHALL NOT fetch `manifest.json` at runtime; source rectangles for the four tiles SHALL be available without network requests so opening from disk remains supported.
+
+#### Scenario: All board cells blitted when atlas is ready
+- **WHEN** the sprite atlas image has finished loading and a render cycle runs
+- **THEN** the canvas SHALL show all eighty-four tile cells drawn from the atlas
+- **AND** no runtime request SHALL be made for `manifest.json`
+
+#### Scenario: Fallback until atlas loads
+- **WHEN** a render cycle runs before the sprite atlas image has finished loading
+- **THEN** the canvas SHALL still clear each frame
+- **AND** tile drawing MAY be skipped until the atlas is ready
+
+### Requirement: Background layer draw order
+The system SHALL draw static environment tiles immediately after clearing the canvas and before any player sprites, hazard entities, or HUD text. This milestone SHALL draw only the background tile layer; entity and HUD layers SHALL not be drawn yet.
+
+#### Scenario: Tiles drawn after clear
+- **WHEN** the render phase executes with a loaded atlas
+- **THEN** the canvas SHALL be cleared first
+- **AND** environment tiles SHALL be drawn before any other visible game layers
+
+#### Scenario: No player or HUD in this milestone
+- **WHEN** the render phase executes in this milestone
+- **THEN** the canvas SHALL NOT show a capybara sprite, moving hazards, or HUD text
