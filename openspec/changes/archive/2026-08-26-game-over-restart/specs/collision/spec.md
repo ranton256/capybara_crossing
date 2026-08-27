@@ -1,21 +1,4 @@
-# collision Specification
-
-## Purpose
-
-Detects player–hazard overlap and applies the hit penalty; last remaining life enters Game Over.
-
-## Requirements
-
-### Requirement: AABB overlap uses sprite width
-The system SHALL treat the player as a one-tile-wide axis-aligned box at the player's grid column and row. Each hazard SHALL use a box at its floating `x`, lane row, and stored width (one tile for ATV, two for truck). Overlap SHALL be registered when the boxes intersect.
-
-#### Scenario: Overlapping boxes register a hit
-- **WHEN** the player box intersects a hazard box
-- **THEN** a collision SHALL be registered
-
-#### Scenario: Adjacent row is safe
-- **WHEN** the player occupies the median row and a hazard occupies an adjacent road row without intersecting the player box
-- **THEN** no collision SHALL be registered
+## MODIFIED Requirements
 
 ### Requirement: Hit costs a life and respawns
 When a collision is registered, the system SHALL decrease lives by 1. If lives remain above 0, the system SHALL reset the player to column 6 row 6, leave the score unchanged, and present the defeat/Zzz sprite without locking input. If lives reach 0, the system SHALL enter Game Over instead of continuing play.

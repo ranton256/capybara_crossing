@@ -132,6 +132,10 @@ function resolveCollisions(state) {
       state.lives -= 1;
       state.player = createInitialPlayer();
       state.hurtUntil = (state.lastTime ?? 0) + HURT_MS;
+      if (state.lives <= 0) {
+        state.lives = 0;
+        state.gameOver = true;
+      }
       return true;
     }
   }
@@ -182,12 +186,31 @@ function directionFromKey(key) {
 }
 
 function handleKeydown(event, state) {
+  if (state.gameOver) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      state.pendingRestart = true;
+    }
+    return;
+  }
   const direction = directionFromKey(event.key);
   if (!direction) {
     return;
   }
   event.preventDefault();
   state.pendingDirection = direction;
+}
+
+function restartSession(state) {
+  state.player = createInitialPlayer();
+  state.hazards = createInitialHazards();
+  state.score = 0;
+  state.lives = STARTING_LIVES;
+  state.gameOver = false;
+  state.pendingRestart = false;
+  state.pendingDirection = null;
+  state.hurtUntil = null;
+  state.sinkingUntil = null;
 }
 
 function drawTile(ctx, atlas, col, row, tileKey) {
@@ -296,9 +319,34 @@ function renderHud(ctx, state) {
   ctx.fillText("Score: " + state.score + "   Lives: " + (state.lives ?? ""), 8, 8);
 }
 
+function renderOverlay(ctx, state) {
+  if (!state.gameOver) {
+    return;
+  }
+  ctx.fillStyle = "#fff8e7";
+  ctx.font = "24px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const cx = CANVAS_WIDTH / 2;
+  const cy = CANVAS_HEIGHT / 2;
+  ctx.fillText("Game Over", cx, cy - 28);
+  ctx.font = "16px monospace";
+  ctx.fillText("Score: " + state.score, cx, cy);
+  ctx.fillText("Enter to restart", cx, cy + 24);
+  ctx.textAlign = "start";
+}
+
 function update(state, dt) {
   if (state._log) {
     state._log.push("update");
+  }
+  if (state.pendingRestart) {
+    restartSession(state);
+    return;
+  }
+  if (state.gameOver) {
+    state.pendingDirection = null;
+    return;
   }
   if (state.pendingDirection) {
     if (!state.sinkingUntil) {
@@ -325,6 +373,7 @@ function render(ctx, state) {
   renderHazards(ctx, state);
   renderPlayer(ctx, state);
   renderHud(ctx, state);
+  renderOverlay(ctx, state);
 }
 
 function loadAtlasImage(callback, options = {}) {
@@ -367,6 +416,7 @@ function boot(options = {}) {
     hazards: createInitialHazards(),
     score: 0,
     lives: STARTING_LIVES,
+    gameOver: false,
     pendingDirection: null,
     freezeHazards: shouldFreezeHazards(options),
   };
@@ -404,6 +454,7 @@ if (typeof module !== "undefined" && module.exports) {
     moveHazards,
     aabbOverlap,
     resolveCollisions,
+    restartSession,
     resolveGoal,
     finishSink,
     hop,
@@ -414,6 +465,7 @@ if (typeof module !== "undefined" && module.exports) {
     renderPlayer,
     renderHazards,
     renderHud,
+    renderOverlay,
     loadAtlasImage,
     update,
     render,
