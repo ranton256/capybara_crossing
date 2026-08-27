@@ -53,3 +53,18 @@ test("resolveCollisions on a miss leaves lives and position", () => {
   assert.equal(state.player.row, 2);
   assert.equal(state.score, 10);
 });
+
+test("resolveCollisions truck width 2 overlap hits and respawns", () => {
+  const state = {
+    player: { col: 7, row: 1, facing: "up" },
+    hazards: [{ kind: "truck", frame: "truck", row: 1, x: 6, vx: 1.5, width: 2 }],
+    lives: 3,
+    score: 25,
+    lastTime: 500,
+  };
+
+  assert.equal(resolveCollisions(state), true);
+  assert.equal(state.lives, 2);
+  assert.deepEqual(state.player, createInitialPlayer());
+  assert.equal(state.score, 25);
+});

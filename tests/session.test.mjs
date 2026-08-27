@@ -14,6 +14,7 @@ const {
   handleKeydown,
   renderOverlay,
   createInitialPlayer,
+  createInitialHazards,
 } = game;
 
 test("last remaining life collision enters Game Over", () => {
@@ -61,6 +62,38 @@ test("arrows do not hop during Game Over", () => {
   assert.equal(state.pendingDirection, null);
   update(state, 16);
   assert.equal(state.player.row, 6);
+});
+
+test("Space restarts a Game Over session and resets hazards", () => {
+  const state = {
+    player: { col: 3, row: 3, facing: "left" },
+    hazards: [{ kind: "truck", frame: "truck", row: 1, x: 8, vx: 1.5, width: 2 }],
+    lives: 0,
+    score: 90,
+    gameOver: true,
+    pendingRestart: false,
+  };
+  handleKeydown({ key: " ", preventDefault() {} }, state);
+  assert.equal(state.pendingRestart, true);
+  update(state, 16);
+  assert.equal(state.gameOver, false);
+  assert.equal(state.lives, 3);
+  assert.equal(state.score, 0);
+  assert.deepEqual(state.player, createInitialPlayer());
+  assert.deepEqual(state.hazards, createInitialHazards());
+});
+
+test("hazards do not move during Game Over", () => {
+  const state = {
+    player: createInitialPlayer(),
+    hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 4, vx: -2.5, width: 1 }],
+    lives: 0,
+    score: 10,
+    gameOver: true,
+    freezeHazards: false,
+  };
+  update(state, 1000);
+  assert.equal(state.hazards[0].x, 4);
 });
 
 test("renderOverlay draws Game Over and final score", () => {

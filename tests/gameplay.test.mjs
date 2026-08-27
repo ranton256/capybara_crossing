@@ -66,6 +66,18 @@ test("successful Up hop from start awards 10 points", () => {
   assert.equal(state.score, 10);
 });
 
+test("out-of-bounds Up at spa row does not award points", () => {
+  const state = session({
+    player: { col: 6, row: 0, facing: "up" },
+    score: 40,
+  });
+
+  assert.equal(hop(state, "up"), false);
+  assert.equal(state.player.row, 0);
+  assert.equal(state.player.col, 6);
+  assert.equal(state.score, 40);
+});
+
 test("Left, Right, and Down hops do not change score", () => {
   const state = session({ player: { col: 5, row: 3, facing: "up" }, score: 20 });
 
@@ -117,4 +129,39 @@ test("finishSink respawns at start and keeps score and lives", () => {
   assert.equal(state.score, 60);
   assert.equal(state.lives, 2);
   assert.equal(state.sinkingUntil, null);
+});
+
+test("update integrates hop into hazard then collision response", () => {
+  const { update, createInitialPlayer } = game;
+  const state = session({
+    player: { col: 6, row: 4, facing: "up" },
+    hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 6, vx: 0, width: 1 }],
+    lives: 3,
+    score: 20,
+    lastTime: 0,
+    pendingDirection: "up",
+    freezeHazards: true,
+  });
+  update(state, 0);
+  assert.equal(state.lives, 2);
+  assert.deepEqual(state.player, createInitialPlayer());
+  assert.equal(state.score, 30);
+  assert.equal(state.pendingDirection, null);
+});
+
+test("update integrates hop into spa with goal bonus", () => {
+  const { update } = game;
+  const state = session({
+    player: { col: 6, row: 1, facing: "up" },
+    hazards: [],
+    lives: 3,
+    score: 0,
+    lastTime: 0,
+    pendingDirection: "up",
+    freezeHazards: true,
+  });
+  update(state, 0);
+  assert.equal(state.player.row, 0);
+  assert.equal(state.score, 60);
+  assert.ok(state.sinkingUntil > 0);
 });
