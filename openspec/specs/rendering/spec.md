@@ -44,14 +44,15 @@ The system SHALL draw static environment tiles immediately after clearing the ca
 
 #### Scenario: No player or HUD in this milestone
 - **WHEN** the render phase executes in this milestone
-- **THEN** the canvas SHALL show the player sprite and score HUD after tiles
-- **AND** the canvas SHALL NOT show moving hazards or a lives counter
+- **THEN** the canvas SHALL show hazard sprites, the player sprite, and score HUD after tiles
+- **AND** the canvas SHALL NOT show a lives counter
 
 #### Scenario: Player and score after tiles
 - **WHEN** the render phase executes with a loaded atlas and an active player
-- **THEN** the player sprite SHALL be drawn after environment tiles
+- **THEN** hazard sprites SHALL be drawn after environment tiles
+- **AND** the player sprite SHALL be drawn after hazards
 - **AND** the score HUD SHALL be drawn after the player sprite
-- **AND** hazard entities and a lives counter SHALL NOT be drawn in this milestone
+- **AND** a lives counter SHALL NOT be drawn in this milestone
 
 ### Requirement: Player sprite drawn from atlas
 The system SHALL draw the player as a single 16×16 atlas frame at the player's current grid cell, scaled by the existing integer scale factor (three). Source rectangles for player frames SHALL be hardcoded (no runtime `manifest.json` fetch). The drawn frame SHALL match the player's facing direction using an existing capybara frame for that direction.
@@ -68,3 +69,11 @@ The system SHALL render the current score as text on the canvas after tiles and 
 - **WHEN** the score is greater than zero and the render phase runs
 - **THEN** the canvas SHALL show the current score value in the HUD layer
 - **AND** that text SHALL be drawn after the player sprite
+
+### Requirement: Hazard sprites drawn from atlas
+The system SHALL draw each hazard using a hardcoded atlas frame at its current horizontal position and lane row, scaled by the existing integer scale factor (three). Truck frames SHALL use a 32×16 source rectangle. Source rectangles SHALL be hardcoded (no runtime `manifest.json` fetch). Right-moving hazards MAY be drawn flipped so the sprite faces its travel direction.
+
+#### Scenario: Hazards blit after tiles
+- **WHEN** the atlas is loaded and hazards exist
+- **THEN** each hazard SHALL be drawn at its lane row and current x
+- **AND** no runtime request SHALL be made for `manifest.json`

@@ -134,6 +134,8 @@ test("boot initializes player, score, and arrow keydown", () => {
   assert.deepEqual(state.player, createInitialPlayer());
   assert.equal(state.score, 0);
   assert.equal(state.pendingDirection, null);
+  assert.ok(state.hazards.length >= 2);
+  assert.equal(state.freezeHazards, false);
   assert.equal(listeners.length, 1);
   assert.equal(listeners[0].type, "keydown");
 
@@ -142,4 +144,24 @@ test("boot initializes player, score, and arrow keydown", () => {
     preventDefault() {},
   });
   assert.equal(state.pendingDirection, "up");
+});
+
+test("boot freezeHazards option and freeze=1 query freeze traffic", () => {
+  const ctx = stubContext();
+  ctx.fillText = () => {};
+  const canvas = stubCanvas(ctx);
+
+  const frozen = boot({
+    document: { getElementById() { return canvas; } },
+    scheduler() {},
+    freezeHazards: true,
+  });
+  assert.equal(frozen.freezeHazards, true);
+
+  const fromQuery = boot({
+    document: { getElementById() { return canvas; } },
+    scheduler() {},
+    location: { search: "?freeze=1" },
+  });
+  assert.equal(fromQuery.freezeHazards, true);
 });

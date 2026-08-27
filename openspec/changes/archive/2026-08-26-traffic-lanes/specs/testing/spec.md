@@ -1,10 +1,4 @@
-# testing Specification
-
-## Purpose
-
-Defines dev-only automated checks that validate browser runtime appearance of the game canvas, complementing Node unit tests without adding runtime npm dependencies to the shipped game.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: P2 board visual regression gate
 The project SHALL provide a dev-only browser test that loads the game over local HTTP with hazard motion frozen, waits until the environment tile board is visible on the canvas, and compares a screenshot of the `#game` canvas element to a committed baseline image. The test SHALL fail when the canvas appearance materially differs from the baseline beyond a configured pixel tolerance.

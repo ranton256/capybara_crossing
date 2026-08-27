@@ -26,7 +26,7 @@ async function waitForTileBoard(page) {
 }
 
 test("P2 board matches canvas baseline after atlas load", async ({ page }) => {
-  await page.goto("/index.html");
+  await page.goto("/index.html?freeze=1");
   await waitForTileBoard(page);
 
   const canvas = page.locator("#game");

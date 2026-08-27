@@ -49,6 +49,15 @@ const ARROW_KEYS = {
 };
 
 const SCORE_PER_UP_HOP = 10;
+const TRUCK_SPEED = 1.5;
+const ATV_SPEED = 2.5;
+
+// Source rects copied from assets/sprites/manifest.json (hazard frames).
+const HAZARD_FRAMES = {
+  atv_red: { sx: 0, sy: 48, sw: 16, sh: 16 },
+  atv_blue: { sx: 16, sy: 48, sw: 16, sh: 16 },
+  truck: { sx: 32, sy: 48, sw: 32, sh: 16 },
+};
 
 function configureCanvas(canvas) {
   canvas.width = CANVAS_WIDTH;
@@ -64,6 +73,42 @@ function createDefaultBoard() {
 
 function createInitialPlayer() {
   return { col: 6, row: 6, facing: "up" };
+}
+
+function createInitialHazards() {
+  return [
+    { kind: "truck", frame: "truck", row: 1, x: 0, vx: TRUCK_SPEED, width: 2 },
+    { kind: "truck", frame: "truck", row: 1, x: 6, vx: TRUCK_SPEED, width: 2 },
+    { kind: "atv", frame: "atv_red", row: 3, x: 3, vx: -ATV_SPEED, width: 1 },
+    { kind: "atv", frame: "atv_blue", row: 3, x: 9, vx: -ATV_SPEED, width: 1 },
+  ];
+}
+
+function moveHazards(state, dt) {
+  if (state.freezeHazards || !state.hazards) {
+    return;
+  }
+  for (const hazard of state.hazards) {
+    hazard.x += hazard.vx * (dt / 1000);
+    const period = COLS + hazard.width;
+    if (hazard.vx > 0 && hazard.x > COLS) {
+      hazard.x -= period;
+    }
+    if (hazard.vx < 0 && hazard.x + hazard.width < 0) {
+      hazard.x += period;
+    }
+  }
+}
+
+function shouldFreezeHazards(options) {
+  if (options.freezeHazards === true) {
+    return true;
+  }
+  const loc = options.location ?? (typeof location !== "undefined" ? location : undefined);
+  if (loc && typeof loc.search === "string") {
+    return loc.search.indexOf("freeze=1") !== -1;
+  }
+  return false;
 }
 
 function hop(state, direction) {
@@ -147,6 +192,51 @@ function renderPlayer(ctx, state) {
   );
 }
 
+function renderHazards(ctx, state) {
+  if (!state.atlas || !state.hazards) {
+    return;
+  }
+  const destH = TILE_SIZE * SCALE;
+  for (const hazard of state.hazards) {
+    const frame = HAZARD_FRAMES[hazard.frame];
+    if (!frame) {
+      continue;
+    }
+    const dx = hazard.x * TILE_SIZE * SCALE;
+    const dy = hazard.row * destH;
+    const dw = frame.sw * SCALE;
+    if (hazard.vx > 0 && typeof ctx.save === "function") {
+      ctx.save();
+      ctx.translate(dx + dw, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(
+        state.atlas.image,
+        frame.sx,
+        frame.sy,
+        frame.sw,
+        frame.sh,
+        0,
+        0,
+        dw,
+        destH,
+      );
+      ctx.restore();
+    } else {
+      ctx.drawImage(
+        state.atlas.image,
+        frame.sx,
+        frame.sy,
+        frame.sw,
+        frame.sh,
+        dx,
+        dy,
+        dw,
+        destH,
+      );
+    }
+  }
+}
+
 function renderHud(ctx, state) {
   if (typeof state.score !== "number") {
     return;
@@ -165,6 +255,7 @@ function update(state, dt) {
     hop(state, state.pendingDirection);
     state.pendingDirection = null;
   }
+  moveHazards(state, dt);
 }
 
 function render(ctx, state) {
@@ -177,6 +268,7 @@ function render(ctx, state) {
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }
   renderBoard(ctx, state);
+  renderHazards(ctx, state);
   renderPlayer(ctx, state);
   renderHud(ctx, state);
 }
@@ -218,8 +310,10 @@ function boot(options = {}) {
   const state = {
     board: createDefaultBoard(),
     player: createInitialPlayer(),
+    hazards: createInitialHazards(),
     score: 0,
     pendingDirection: null,
+    freezeHazards: shouldFreezeHazards(options),
   };
   const win = options.window ?? (typeof window !== "undefined" ? window : undefined);
   if (win && typeof win.addEventListener === "function") {
@@ -245,15 +339,19 @@ if (typeof module !== "undefined" && module.exports) {
     ATLAS_PATH,
     TILE_FRAMES,
     PLAYER_FRAMES,
+    HAZARD_FRAMES,
     configureCanvas,
     createDefaultBoard,
     createInitialPlayer,
+    createInitialHazards,
+    moveHazards,
     hop,
     directionFromKey,
     handleKeydown,
     drawTile,
     renderBoard,
     renderPlayer,
+    renderHazards,
     renderHud,
     loadAtlasImage,
     update,

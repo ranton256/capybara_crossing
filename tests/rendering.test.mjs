@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const game = require(join(root, "game.js"));
 
-const {
+  const {
   COLS,
   ROWS,
   TILE_SIZE,
@@ -20,6 +20,7 @@ const {
   ATLAS_PATH,
   createDefaultBoard,
   createInitialPlayer,
+  createInitialHazards,
   drawTile,
   renderBoard,
   renderPlayer,
@@ -192,8 +193,18 @@ test("render draws tiles then player then score HUD", () => {
       log.push("clearRect");
     },
     drawImage(_image, sx, sy) {
-      log.push(sy === 0 ? "player" : "tile");
+      if (sy === 0) {
+        log.push("player");
+      } else if (sy === 48) {
+        log.push("hazard");
+      } else {
+        log.push("tile");
+      }
     },
+    save() {},
+    restore() {},
+    translate() {},
+    scale() {},
     fillText(text) {
       log.push("hud:" + text);
     },
@@ -208,6 +219,7 @@ test("render draws tiles then player then score HUD", () => {
     board: createDefaultBoard(),
     atlas: stubAtlas(),
     player: createInitialPlayer(),
+    hazards: createInitialHazards(),
     score: 10,
   };
 
@@ -215,10 +227,15 @@ test("render draws tiles then player then score HUD", () => {
 
   assert.equal(log[0], "clearRect");
   const tileCount = log.filter((entry) => entry === "tile").length;
+  const hazardCount = log.filter((entry) => entry === "hazard").length;
   const playerIndex = log.indexOf("player");
+  const firstHazard = log.indexOf("hazard");
+  const lastHazard = log.lastIndexOf("hazard");
   const hudIndex = log.findIndex((entry) => String(entry).startsWith("hud:"));
   assert.equal(tileCount, COLS * ROWS);
-  assert.ok(playerIndex > log.lastIndexOf("tile"));
+  assert.equal(hazardCount, 4);
+  assert.ok(firstHazard > log.lastIndexOf("tile"));
+  assert.ok(playerIndex > lastHazard);
   assert.ok(hudIndex > playerIndex);
   assert.match(log[hudIndex], /10/);
   assert.ok(!log.includes("fillRect"));
