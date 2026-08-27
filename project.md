@@ -28,3 +28,5 @@ Vanilla JavaScript application with no external frameworks.
 
 - Maintain strict separation of concerns between state, logic, and UI.
 
+- Develop test-first. `npm test` (Node 22) must pass with 80% line, function, and branch coverage on `game.js` and `src/**` before commit. The browser game has no runtime npm dependencies.
+

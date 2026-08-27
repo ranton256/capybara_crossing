@@ -1,0 +1,30 @@
+---
+description: Require test-driven development; commits must pass tests and coverage.
+alwaysApply: true
+---
+
+# Test-driven development
+
+Write failing tests first, then the minimum game code to pass, then refactor. Do not add untested behavior to `game.js` or `src/`.
+
+The browser game itself stays zero-dependency (`index.html`, `style.css`, `game.js` with no npm runtime). Tests are a **dev-only** Node 22 harness (`npm test`).
+
+## Rules
+
+- Put new logic behind functions that Node can import from tests (`*.test.mjs` under `tests/`).
+- Keep canvas/DOM glue thin. Collision, grid moves, lives, and scoring must be unit-tested.
+- `npm test` fails the process below 80% line, function, and branch coverage on `game.js` and `src/**`.
+- Pre-commit runs `npm test`. Do not `--no-verify` unless the user explicitly asks.
+- Coverage include is empty until those files exist; adding untested `game.js` / `src` must fail the hook.
+
+```js
+// ❌ BAD — implement hop scoring, then maybe test later
+export function hop() { state.score += 10; }
+
+// ✅ GOOD — test the score rule first, then implement
+test("up hop awards 10 points", () => {
+  const state = { score: 0, y: 6 };
+  hop(state, "up");
+  assert.equal(state.score, 10);
+});
+```
