@@ -34,6 +34,8 @@ const PLAYER_FRAMES = {
   right: { sx: 96, sy: 0, sw: 16, sh: 16 },
 };
 
+const DEFEAT_FRAME = { sx: 0, sy: 16, sw: 16, sh: 16 };
+
 const DIRECTION_DELTA = {
   up: { col: 0, row: -1 },
   down: { col: 0, row: 1 },
@@ -49,6 +51,8 @@ const ARROW_KEYS = {
 };
 
 const SCORE_PER_UP_HOP = 10;
+const STARTING_LIVES = 3;
+const HURT_MS = 300;
 const TRUCK_SPEED = 1.5;
 const ATV_SPEED = 2.5;
 
@@ -107,6 +111,27 @@ function shouldFreezeHazards(options) {
   const loc = options.location ?? (typeof location !== "undefined" ? location : undefined);
   if (loc && typeof loc.search === "string") {
     return loc.search.indexOf("freeze=1") !== -1;
+  }
+  return false;
+}
+
+function aabbOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function resolveCollisions(state) {
+  if (!state.player || !state.hazards) {
+    return false;
+  }
+  const playerBox = { x: state.player.col, y: state.player.row, w: 1, h: 1 };
+  for (const hazard of state.hazards) {
+    const hazardBox = { x: hazard.x, y: hazard.row, w: hazard.width, h: 1 };
+    if (aabbOverlap(playerBox, hazardBox)) {
+      state.lives -= 1;
+      state.player = createInitialPlayer();
+      state.hurtUntil = (state.lastTime ?? 0) + HURT_MS;
+      return true;
+    }
   }
   return false;
 }
@@ -174,7 +199,9 @@ function renderPlayer(ctx, state) {
   if (!state.atlas || !state.player) {
     return;
   }
-  const frame = PLAYER_FRAMES[state.player.facing];
+  const now = state.lastTime ?? 0;
+  const posed = typeof state.hurtUntil === "number" && now < state.hurtUntil;
+  const frame = posed ? DEFEAT_FRAME : PLAYER_FRAMES[state.player.facing];
   if (!frame) {
     return;
   }
@@ -244,7 +271,7 @@ function renderHud(ctx, state) {
   ctx.fillStyle = "#fff8e7";
   ctx.font = "16px monospace";
   ctx.textBaseline = "top";
-  ctx.fillText("Score: " + state.score, 8, 8);
+  ctx.fillText("Score: " + state.score + "   Lives: " + (state.lives ?? ""), 8, 8);
 }
 
 function update(state, dt) {
@@ -256,6 +283,7 @@ function update(state, dt) {
     state.pendingDirection = null;
   }
   moveHazards(state, dt);
+  resolveCollisions(state);
 }
 
 function render(ctx, state) {
@@ -312,6 +340,7 @@ function boot(options = {}) {
     player: createInitialPlayer(),
     hazards: createInitialHazards(),
     score: 0,
+    lives: STARTING_LIVES,
     pendingDirection: null,
     freezeHazards: shouldFreezeHazards(options),
   };
@@ -340,11 +369,15 @@ if (typeof module !== "undefined" && module.exports) {
     TILE_FRAMES,
     PLAYER_FRAMES,
     HAZARD_FRAMES,
+    DEFEAT_FRAME,
+    STARTING_LIVES,
     configureCanvas,
     createDefaultBoard,
     createInitialPlayer,
     createInitialHazards,
     moveHazards,
+    aabbOverlap,
+    resolveCollisions,
     hop,
     directionFromKey,
     handleKeydown,

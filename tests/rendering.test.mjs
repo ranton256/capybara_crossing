@@ -157,6 +157,23 @@ test("loadAtlasImage invokes callback with atlas frames", () => {
   assert.deepEqual(loaded.frames, TILE_FRAMES);
 });
 
+test("renderPlayer uses defeat frame while hurtUntil is in the future", () => {
+  const calls = [];
+  const ctx = {
+    drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh) {
+      calls.push({ sx, sy, sw, sh, dx, dy, dw, dh });
+    },
+  };
+  renderPlayer(ctx, {
+    atlas: stubAtlas(),
+    player: { col: 6, row: 6, facing: "up" },
+    lastTime: 100,
+    hurtUntil: 400,
+  });
+  assert.equal(calls[0].sx, 0);
+  assert.equal(calls[0].sy, 16);
+});
+
 test("renderPlayer blits facing frame at scaled grid cell", () => {
   const calls = [];
   const ctx = {
@@ -221,6 +238,7 @@ test("render draws tiles then player then score HUD", () => {
     player: createInitialPlayer(),
     hazards: createInitialHazards(),
     score: 10,
+    lives: 3,
   };
 
   render(ctx, state);
@@ -238,6 +256,7 @@ test("render draws tiles then player then score HUD", () => {
   assert.ok(playerIndex > lastHazard);
   assert.ok(hudIndex > playerIndex);
   assert.match(log[hudIndex], /10/);
+  assert.match(log[hudIndex], /Lives: 3/);
   assert.ok(!log.includes("fillRect"));
 });
 

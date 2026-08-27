@@ -133,6 +133,7 @@ test("boot initializes player, score, and arrow keydown", () => {
 
   assert.deepEqual(state.player, createInitialPlayer());
   assert.equal(state.score, 0);
+  assert.equal(state.lives, 3);
   assert.equal(state.pendingDirection, null);
   assert.ok(state.hazards.length >= 2);
   assert.equal(state.freezeHazards, false);

@@ -44,15 +44,14 @@ The system SHALL draw static environment tiles immediately after clearing the ca
 
 #### Scenario: No player or HUD in this milestone
 - **WHEN** the render phase executes in this milestone
-- **THEN** the canvas SHALL show hazard sprites, the player sprite, and score HUD after tiles
-- **AND** the canvas SHALL NOT show a lives counter
+- **THEN** the canvas SHALL show hazard sprites, the player sprite, and HUD after tiles
+- **AND** the canvas SHALL NOT show a Game Over overlay
 
 #### Scenario: Player and score after tiles
 - **WHEN** the render phase executes with a loaded atlas and an active player
 - **THEN** hazard sprites SHALL be drawn after environment tiles
 - **AND** the player sprite SHALL be drawn after hazards
-- **AND** the score HUD SHALL be drawn after the player sprite
-- **AND** a lives counter SHALL NOT be drawn in this milestone
+- **AND** the HUD SHALL be drawn after the player sprite
 
 ### Requirement: Player sprite drawn from atlas
 The system SHALL draw the player as a single 16×16 atlas frame at the player's current grid cell, scaled by the existing integer scale factor (three). Source rectangles for player frames SHALL be hardcoded (no runtime `manifest.json` fetch). The drawn frame SHALL match the player's facing direction using an existing capybara frame for that direction.
@@ -63,12 +62,23 @@ The system SHALL draw the player as a single 16×16 atlas frame at the player's 
 - **AND** no runtime request SHALL be made for `manifest.json`
 
 ### Requirement: Score HUD on top
-The system SHALL render the current score as text on the canvas after tiles and the player sprite so it remains readable above gameplay pixels.
+The system SHALL render the current score and remaining lives as text on the canvas after tiles, hazards, and the player sprite so the HUD remains readable above gameplay pixels.
 
 #### Scenario: Score text visible after hops
 - **WHEN** the score is greater than zero and the render phase runs
 - **THEN** the canvas SHALL show the current score value in the HUD layer
 - **AND** that text SHALL be drawn after the player sprite
+
+#### Scenario: Lives shown in HUD
+- **WHEN** the render phase runs with a numeric lives counter
+- **THEN** the HUD SHALL include the remaining life count
+
+### Requirement: Defeat pose after a hit
+While the post-hit Zzz pose is active, the system SHALL draw the existing defeat atlas frame for the player instead of the facing walk frame.
+
+#### Scenario: Defeat frame while posed
+- **WHEN** the player is in the Zzz/defeat pose and the render phase runs
+- **THEN** the defeat frame SHALL be drawn at the player's current cell
 
 ### Requirement: Hazard sprites drawn from atlas
 The system SHALL draw each hazard using a hardcoded atlas frame at its current horizontal position and lane row, scaled by the existing integer scale factor (three). Truck frames SHALL use a 32×16 source rectangle. Source rectangles SHALL be hardcoded (no runtime `manifest.json` fetch). Right-moving hazards MAY be drawn flipped so the sprite faces its travel direction.

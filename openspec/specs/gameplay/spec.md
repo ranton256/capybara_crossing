@@ -31,3 +31,10 @@ The system SHALL increase the score by 10 when an Up hop moves the player to a n
 - **WHEN** the player is already on row 0 and presses Up
 - **THEN** the player position SHALL remain on row 0
 - **AND** the score SHALL remain unchanged
+
+### Requirement: Starting lives
+The system SHALL start a play session with 3 lives.
+
+#### Scenario: Fresh session lives
+- **WHEN** the game boots into an active play session
+- **THEN** remaining lives SHALL be 3
