@@ -76,6 +76,7 @@ test("tick runs update before render and clears the canvas", () => {
 
   assert.deepEqual(log.slice(0, 2), ["update", "render"]);
   assert.ok(log.includes("clearRect"));
+  assert.ok(log.includes("fillRect"));
 });
 
 test("startLoop schedules the next frame after each tick", () => {
