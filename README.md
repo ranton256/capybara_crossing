@@ -2,14 +2,18 @@
 
 A retro arcade tutorial: hop a pixel-art capybara across jungle roads to a mud spa. The **shipped game is three files** (`index.html`, `style.css`, `game.js`) with no bundler and no runtime npm dependencies. Open `index.html` in a browser.
 
+![Capybara Crossing gameplay](docs/gameplay.png)
+
 npm is **dev-only** (unit tests, Playwright, a static file server).
 
 ## Play
 
 - **Move:** arrow keys (one tile per press)
-- **Score:** +10 for each successful Up hop; +50 more when you enter the spa (row 0)
+- **Score:** +10 only when you hop **Up** onto a new farthest-north row for this life (re-climbing the same row after going down does not score again); +50 more when you enter the spa
 - **Lives:** 3. Overlap with an ATV or truck costs a life and respawns at the start
-- **Game Over:** lives hit 0. **Enter** or **Space** starts a new run
+- **Difficulty:** each spa clear makes traffic 10% faster; **Enter** / **Space** after Game Over resets speed to normal
+- **Best:** HUD shows Best; it persists in `localStorage` across reloads
+- **Game Over:** lives hit 0. **Enter** or **Space** starts a new run (Best is kept)
 
 ## Run the game
 
@@ -71,4 +75,4 @@ tests/e2e/          # Playwright visual gate
 openspec/           # specs and archived changes
 ```
 
-Gameplay behavior is specified in `Capybara Crossing.md`. Optional items in that doc (timer, audio, `localStorage`, speed ramp) are not in the game until they are requested.
+Gameplay behavior is specified in `Capybara Crossing.md`. Remaining optional items there (timer, audio) stay parked until requested.

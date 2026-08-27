@@ -1,18 +1,4 @@
-# session Specification
-
-## Purpose
-
-Ends a run at zero lives and lets the player start a fresh session without a page reload.
-
-## Requirements
-
-### Requirement: Zero lives enter Game Over
-When lives decrease to 0 from a collision, the system SHALL enter Game Over. Hops and hazard motion SHALL stop. The player SHALL not continue a playable round.
-
-#### Scenario: Last hit ends the run
-- **WHEN** a collision is registered with exactly 1 life remaining
-- **THEN** lives SHALL be 0
-- **AND** the session SHALL be in Game Over
+## MODIFIED Requirements
 
 ### Requirement: Restart restores a fresh session
 While Game Over is active, pressing Enter or Space SHALL reset lives to 3, score to 0, player to column 6 row 6, hazards to their initial layout, hazard speed factor to 1.0, and `bestRowThisLife` to 6, and SHALL clear Game Over. Best SHALL remain the persisted high score (not cleared).

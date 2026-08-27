@@ -25,11 +25,24 @@ test("moveHazards advances x by velocity times elapsed seconds", () => {
   const state = {
     hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 4, vx: -2.5, width: 1 }],
     freezeHazards: false,
+    speedFactor: 1,
   };
 
   moveHazards(state, 1000);
 
   assert.equal(state.hazards[0].x, 1.5);
+});
+
+test("moveHazards scales by speedFactor", () => {
+  const state = {
+    hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 4, vx: -2.5, width: 1 }],
+    freezeHazards: false,
+    speedFactor: 1.1,
+  };
+
+  moveHazards(state, 1000);
+
+  assert.equal(state.hazards[0].x, 4 + -2.5 * 1.1);
 });
 
 test("moveHazards wraps at both board edges", () => {

@@ -8,12 +8,15 @@ const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const game = require(join(root, "game.js"));
 
-const { createInitialPlayer, hop } = game;
+const { createInitialPlayer, hop, SPAWN_ROW } = game;
 
 function session(overrides = {}) {
   return {
     player: createInitialPlayer(),
     score: 0,
+    bestRowThisLife: SPAWN_ROW,
+    walkPhase: 0,
+    best: 0,
     ...overrides,
   };
 }
@@ -64,12 +67,24 @@ test("successful Up hop from start awards 10 points", () => {
   assert.equal(state.player.row, 5);
   assert.equal(state.player.col, 6);
   assert.equal(state.score, 10);
+  assert.equal(state.bestRowThisLife, 5);
+});
+
+test("re-upping the same progress does not score", () => {
+  const state = session();
+  hop(state, "up");
+  assert.equal(state.score, 10);
+  hop(state, "down");
+  hop(state, "up");
+  assert.equal(state.player.row, 5);
+  assert.equal(state.score, 10);
 });
 
 test("out-of-bounds Up at spa row does not award points", () => {
   const state = session({
     player: { col: 6, row: 0, facing: "up" },
     score: 40,
+    bestRowThisLife: 0,
   });
 
   assert.equal(hop(state, "up"), false);
@@ -92,7 +107,12 @@ test("Left, Right, and Down hops do not change score", () => {
 
 test("entering the spa awards hop plus fifty bonus", () => {
   const { resolveGoal } = game;
-  const state = session({ player: { col: 6, row: 1, facing: "up" }, score: 0, lastTime: 0 });
+  const state = session({
+    player: { col: 6, row: 1, facing: "up" },
+    score: 0,
+    lastTime: 0,
+    bestRowThisLife: 1,
+  });
   hop(state, "up");
   assert.equal(state.player.row, 0);
   assert.equal(state.score, 10);
@@ -115,7 +135,7 @@ test("update ignores hops during the sink beat", () => {
   assert.equal(state.pendingDirection, null);
 });
 
-test("finishSink respawns at start and keeps score and lives", () => {
+test("finishSink respawns at start, keeps score, bumps speed, resets watermark", () => {
   const { finishSink, createInitialPlayer } = game;
   const state = session({
     player: { col: 4, row: 0, facing: "up" },
@@ -123,12 +143,30 @@ test("finishSink respawns at start and keeps score and lives", () => {
     lives: 2,
     lastTime: 500,
     sinkingUntil: 400,
+    speedFactor: 1,
+    bestRowThisLife: 0,
   });
   finishSink(state);
   assert.deepEqual(state.player, createInitialPlayer());
   assert.equal(state.score, 60);
   assert.equal(state.lives, 2);
   assert.equal(state.sinkingUntil, null);
+  assert.equal(state.speedFactor, 1.1);
+  assert.equal(state.bestRowThisLife, SPAWN_ROW);
+});
+
+test("resolveCollisions resets bestRowThisLife on death respawn", () => {
+  const { resolveCollisions } = game;
+  const state = session({
+    player: { col: 6, row: 3, facing: "up" },
+    hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 6, vx: -2.5, width: 1 }],
+    lives: 3,
+    score: 40,
+    bestRowThisLife: 2,
+    lastTime: 0,
+  });
+  assert.equal(resolveCollisions(state), true);
+  assert.equal(state.bestRowThisLife, SPAWN_ROW);
 });
 
 test("update integrates hop into hazard then collision response", () => {
@@ -141,6 +179,7 @@ test("update integrates hop into hazard then collision response", () => {
     lastTime: 0,
     pendingDirection: "up",
     freezeHazards: true,
+    bestRowThisLife: 4,
   });
   update(state, 0);
   assert.equal(state.lives, 2);
@@ -159,9 +198,18 @@ test("update integrates hop into spa with goal bonus", () => {
     lastTime: 0,
     pendingDirection: "up",
     freezeHazards: true,
+    bestRowThisLife: 1,
   });
   update(state, 0);
   assert.equal(state.player.row, 0);
   assert.equal(state.score, 60);
   assert.ok(state.sinkingUntil > 0);
+});
+
+test("successful hop flips walkPhase", () => {
+  const state = session({ walkPhase: 0 });
+  hop(state, "up");
+  assert.equal(state.walkPhase, 1);
+  hop(state, "left");
+  assert.equal(state.walkPhase, 0);
 });

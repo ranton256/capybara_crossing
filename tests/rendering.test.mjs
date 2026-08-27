@@ -174,6 +174,26 @@ test("renderPlayer uses defeat frame while hurtUntil is in the future", () => {
   assert.equal(calls[0].sy, 16);
 });
 
+test("renderPlayer applies sink draw offset during sink beat", () => {
+  const calls = [];
+  const ctx = {
+    drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh) {
+      calls.push({ dx, dy, dw, dh });
+    },
+  };
+  const destSize = TILE_SIZE * SCALE;
+  renderPlayer(ctx, {
+    atlas: stubAtlas(),
+    player: { col: 6, row: 0, facing: "up" },
+    lastTime: 100,
+    sinkingUntil: 500,
+    walkPhase: 0,
+  });
+  assert.equal(calls[0].dx, 6 * destSize);
+  assert.equal(calls[0].dy, 6);
+  assert.equal(calls[0].dh, destSize - 6);
+});
+
 test("renderPlayer blits facing frame at scaled grid cell", () => {
   const calls = [];
   const ctx = {
@@ -192,8 +212,8 @@ test("renderPlayer blits facing frame at scaled grid cell", () => {
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {
     image: atlas.image,
-    sx: PLAYER_FRAMES.up.sx,
-    sy: PLAYER_FRAMES.up.sy,
+    sx: PLAYER_FRAMES.up[0].sx,
+    sy: PLAYER_FRAMES.up[0].sy,
     sw: 16,
     sh: 16,
     dx: 6 * TILE_SIZE * SCALE,
@@ -239,6 +259,7 @@ test("render draws tiles then player then score HUD", () => {
     hazards: createInitialHazards(),
     score: 10,
     lives: 3,
+    best: 40,
   };
 
   render(ctx, state);
@@ -257,6 +278,7 @@ test("render draws tiles then player then score HUD", () => {
   assert.ok(hudIndex > playerIndex);
   assert.match(log[hudIndex], /10/);
   assert.match(log[hudIndex], /Lives: 3/);
+  assert.match(log[hudIndex], /Best: 40/);
   assert.ok(!log.includes("fillRect"));
 });
 

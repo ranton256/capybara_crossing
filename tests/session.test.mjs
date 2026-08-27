@@ -38,8 +38,10 @@ test("Enter restarts a Game Over session", () => {
     hazards: [{ kind: "truck", frame: "truck", row: 1, x: 8, vx: 1.5, width: 2 }],
     lives: 0,
     score: 90,
+    best: 90,
     gameOver: true,
     pendingRestart: false,
+    speedFactor: 1.1,
   };
   handleKeydown({ key: "Enter", preventDefault() {} }, state);
   assert.equal(state.pendingRestart, true);
@@ -47,6 +49,8 @@ test("Enter restarts a Game Over session", () => {
   assert.equal(state.gameOver, false);
   assert.equal(state.lives, 3);
   assert.equal(state.score, 0);
+  assert.equal(state.best, 90);
+  assert.equal(state.speedFactor, 1);
   assert.deepEqual(state.player, createInitialPlayer());
 });
 
@@ -112,4 +116,5 @@ test("renderOverlay draws Game Over and final score", () => {
   );
   assert.ok(texts.some((t) => t.includes("Game Over")));
   assert.ok(texts.some((t) => t.includes("70")));
+  assert.ok(texts.some((t) => /Enter/i.test(t) && /Space/i.test(t)));
 });

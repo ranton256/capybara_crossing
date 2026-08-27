@@ -4,8 +4,12 @@ const TILE_SIZE = 16;
 const SCALE = 3;
 const CANVAS_WIDTH = COLS * TILE_SIZE * SCALE;
 const CANVAS_HEIGHT = ROWS * TILE_SIZE * SCALE;
+const SPAWN_ROW = 6;
 
 const CLEAR_COLOR = "#1a1a2e";
+const BEST_STORAGE_KEY = "capybara_crossing_best";
+const SPEED_BUMP = 1.1;
+const SINK_DRAW_OFFSET = 6;
 
 // Source rects copied from assets/sprites/manifest.json (environment tiles only).
 const ATLAS_PATH = "assets/sprites/capybara_crossing.png";
@@ -26,12 +30,24 @@ const ROW_TILES = [
   "tile_start",
 ];
 
-// Source rects copied from assets/sprites/manifest.json (first frame per facing).
+// Walk frame pairs from assets/sprites/manifest.json.
 const PLAYER_FRAMES = {
-  up: { sx: 0, sy: 0, sw: 16, sh: 16 },
-  down: { sx: 32, sy: 0, sw: 16, sh: 16 },
-  left: { sx: 64, sy: 0, sw: 16, sh: 16 },
-  right: { sx: 96, sy: 0, sw: 16, sh: 16 },
+  up: [
+    { sx: 0, sy: 0, sw: 16, sh: 16 },
+    { sx: 16, sy: 0, sw: 16, sh: 16 },
+  ],
+  down: [
+    { sx: 32, sy: 0, sw: 16, sh: 16 },
+    { sx: 48, sy: 0, sw: 16, sh: 16 },
+  ],
+  left: [
+    { sx: 64, sy: 0, sw: 16, sh: 16 },
+    { sx: 80, sy: 0, sw: 16, sh: 16 },
+  ],
+  right: [
+    { sx: 96, sy: 0, sw: 16, sh: 16 },
+    { sx: 112, sy: 0, sw: 16, sh: 16 },
+  ],
 };
 
 const DEFEAT_FRAME = { sx: 0, sy: 16, sw: 16, sh: 16 };
@@ -78,7 +94,7 @@ function createDefaultBoard() {
 }
 
 function createInitialPlayer() {
-  return { col: 6, row: 6, facing: "up" };
+  return { col: 6, row: SPAWN_ROW, facing: "up" };
 }
 
 function createInitialHazards() {
@@ -90,12 +106,61 @@ function createInitialHazards() {
   ];
 }
 
+function resolveStorage(options = {}) {
+  if (options.localStorage) {
+    return options.localStorage;
+  }
+  try {
+    if (typeof localStorage !== "undefined") {
+      return localStorage;
+    }
+  } catch (_err) {
+    /* unavailable */
+  }
+  return null;
+}
+
+function loadBest(storage) {
+  if (!storage || typeof storage.getItem !== "function") {
+    return 0;
+  }
+  try {
+    const raw = storage.getItem(BEST_STORAGE_KEY);
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch (_err) {
+    return 0;
+  }
+}
+
+function saveBest(storage, value) {
+  if (!storage || typeof storage.setItem !== "function") {
+    return;
+  }
+  try {
+    storage.setItem(BEST_STORAGE_KEY, String(value));
+  } catch (_err) {
+    /* ignore quota / private mode */
+  }
+}
+
+function maybeUpdateBest(state) {
+  if (typeof state.score !== "number") {
+    return;
+  }
+  if (state.score > (state.best ?? 0)) {
+    state.best = state.score;
+    saveBest(state.storage, state.best);
+  }
+}
+
 function moveHazards(state, dt) {
   if (state.freezeHazards || !state.hazards) {
     return;
   }
+  const factor = state.speedFactor ?? 1;
   for (const hazard of state.hazards) {
-    hazard.x += hazard.vx * (dt / 1000);
+    hazard.x += hazard.vx * factor * (dt / 1000);
     const period = COLS + hazard.width;
     if (hazard.vx > 0 && hazard.x > COLS) {
       hazard.x -= period;
@@ -131,10 +196,12 @@ function resolveCollisions(state) {
     if (aabbOverlap(playerBox, hazardBox)) {
       state.lives -= 1;
       state.player = createInitialPlayer();
+      state.bestRowThisLife = SPAWN_ROW;
       state.hurtUntil = (state.lastTime ?? 0) + HURT_MS;
       if (state.lives <= 0) {
         state.lives = 0;
         state.gameOver = true;
+        maybeUpdateBest(state);
       }
       return true;
     }
@@ -147,6 +214,7 @@ function resolveGoal(state) {
     return false;
   }
   state.score += GOAL_BONUS;
+  maybeUpdateBest(state);
   state.sinkingUntil = (state.lastTime ?? 0) + SINK_MS;
   return true;
 }
@@ -160,6 +228,8 @@ function finishSink(state) {
   }
   state.player = createInitialPlayer();
   state.sinkingUntil = null;
+  state.bestRowThisLife = SPAWN_ROW;
+  state.speedFactor = (state.speedFactor ?? 1) * SPEED_BUMP;
 }
 
 function hop(state, direction) {
@@ -175,8 +245,12 @@ function hop(state, direction) {
   state.player.col = nextCol;
   state.player.row = nextRow;
   state.player.facing = direction;
-  if (direction === "up") {
+  state.walkPhase = state.walkPhase === 1 ? 0 : 1;
+  const watermark = state.bestRowThisLife ?? SPAWN_ROW;
+  if (direction === "up" && nextRow < watermark) {
     state.score += SCORE_PER_UP_HOP;
+    state.bestRowThisLife = nextRow;
+    maybeUpdateBest(state);
   }
   return true;
 }
@@ -211,6 +285,9 @@ function restartSession(state) {
   state.pendingDirection = null;
   state.hurtUntil = null;
   state.sinkingUntil = null;
+  state.bestRowThisLife = SPAWN_ROW;
+  state.speedFactor = 1;
+  state.walkPhase = 0;
 }
 
 function drawTile(ctx, atlas, col, row, tileKey) {
@@ -246,21 +323,38 @@ function renderPlayer(ctx, state) {
   }
   const now = state.lastTime ?? 0;
   const posed = typeof state.hurtUntil === "number" && now < state.hurtUntil;
-  const frame = posed ? DEFEAT_FRAME : PLAYER_FRAMES[state.player.facing];
+  const sinking =
+    typeof state.sinkingUntil === "number" && now < state.sinkingUntil;
+  let frame = DEFEAT_FRAME;
+  if (!posed) {
+    const frames = PLAYER_FRAMES[state.player.facing];
+    if (!frames) {
+      return;
+    }
+    const phase = state.walkPhase === 1 ? 1 : 0;
+    frame = frames[phase] ?? frames[0];
+  }
   if (!frame) {
     return;
   }
   const destSize = TILE_SIZE * SCALE;
+  const dx = state.player.col * destSize;
+  let dy = state.player.row * destSize;
+  let dh = destSize;
+  if (sinking) {
+    dy += SINK_DRAW_OFFSET;
+    dh = destSize - SINK_DRAW_OFFSET;
+  }
   ctx.drawImage(
     state.atlas.image,
     frame.sx,
     frame.sy,
     frame.sw,
     frame.sh,
-    state.player.col * destSize,
-    state.player.row * destSize,
+    dx,
+    dy,
     destSize,
-    destSize,
+    dh,
   );
 }
 
@@ -316,7 +410,16 @@ function renderHud(ctx, state) {
   ctx.fillStyle = "#fff8e7";
   ctx.font = "16px monospace";
   ctx.textBaseline = "top";
-  ctx.fillText("Score: " + state.score + "   Lives: " + (state.lives ?? ""), 8, 8);
+  ctx.fillText(
+    "Score: " +
+      state.score +
+      "   Lives: " +
+      (state.lives ?? "") +
+      "   Best: " +
+      (state.best ?? 0),
+    8,
+    8,
+  );
 }
 
 function renderOverlay(ctx, state) {
@@ -332,7 +435,7 @@ function renderOverlay(ctx, state) {
   ctx.fillText("Game Over", cx, cy - 28);
   ctx.font = "16px monospace";
   ctx.fillText("Score: " + state.score, cx, cy);
-  ctx.fillText("Enter to restart", cx, cy + 24);
+  ctx.fillText("Enter / Space to restart", cx, cy + 24);
   ctx.textAlign = "start";
 }
 
@@ -410,12 +513,18 @@ function boot(options = {}) {
   const scheduler = options.scheduler ?? requestAnimationFrame;
   const canvas = doc.getElementById("game");
   const ctx = configureCanvas(canvas);
+  const storage = resolveStorage(options);
   const state = {
     board: createDefaultBoard(),
     player: createInitialPlayer(),
     hazards: createInitialHazards(),
     score: 0,
     lives: STARTING_LIVES,
+    best: loadBest(storage),
+    storage,
+    bestRowThisLife: SPAWN_ROW,
+    speedFactor: 1,
+    walkPhase: 0,
     gameOver: false,
     pendingDirection: null,
     freezeHazards: shouldFreezeHazards(options),
@@ -441,6 +550,8 @@ if (typeof module !== "undefined" && module.exports) {
     SCALE,
     CANVAS_WIDTH,
     CANVAS_HEIGHT,
+    SPAWN_ROW,
+    BEST_STORAGE_KEY,
     ATLAS_PATH,
     TILE_FRAMES,
     PLAYER_FRAMES,
@@ -451,6 +562,9 @@ if (typeof module !== "undefined" && module.exports) {
     createDefaultBoard,
     createInitialPlayer,
     createInitialHazards,
+    loadBest,
+    saveBest,
+    maybeUpdateBest,
     moveHazards,
     aabbOverlap,
     resolveCollisions,
