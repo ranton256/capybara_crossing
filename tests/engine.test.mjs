@@ -15,6 +15,7 @@ const {
   tick,
   startLoop,
   boot,
+  createInitialPlayer,
 } = game;
 
 function stubContext() {
@@ -107,4 +108,38 @@ test("boot configures canvas and starts the loop without throwing", () => {
   assert.equal(canvas.width, 576);
   assert.equal(canvas.height, 336);
   assert.equal(scheduled.length, 1);
+});
+
+test("boot initializes player, score, and arrow keydown", () => {
+  const ctx = stubContext();
+  ctx.fillText = () => {};
+  const canvas = stubCanvas(ctx);
+  const listeners = [];
+  const win = {
+    addEventListener(type, handler) {
+      listeners.push({ type, handler });
+    },
+  };
+
+  const state = boot({
+    document: {
+      getElementById() {
+        return canvas;
+      },
+    },
+    window: win,
+    scheduler() {},
+  });
+
+  assert.deepEqual(state.player, createInitialPlayer());
+  assert.equal(state.score, 0);
+  assert.equal(state.pendingDirection, null);
+  assert.equal(listeners.length, 1);
+  assert.equal(listeners[0].type, "keydown");
+
+  listeners[0].handler({
+    key: "ArrowUp",
+    preventDefault() {},
+  });
+  assert.equal(state.pendingDirection, "up");
 });

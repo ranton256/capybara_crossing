@@ -1,4 +1,4 @@
-// P2 visual regression: canvas screenshot after atlas paints the tile board.
+// Visual regression: canvas screenshot after atlas paints the tile board and player.
 // Update baseline: npm run test:e2e:update
 import { expect, test } from "@playwright/test";
 
