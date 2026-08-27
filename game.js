@@ -51,8 +51,10 @@ const ARROW_KEYS = {
 };
 
 const SCORE_PER_UP_HOP = 10;
+const GOAL_BONUS = 50;
 const STARTING_LIVES = 3;
 const HURT_MS = 300;
+const SINK_MS = 400;
 const TRUCK_SPEED = 1.5;
 const ATV_SPEED = 2.5;
 
@@ -134,6 +136,26 @@ function resolveCollisions(state) {
     }
   }
   return false;
+}
+
+function resolveGoal(state) {
+  if (!state.player || state.player.row !== 0 || state.sinkingUntil) {
+    return false;
+  }
+  state.score += GOAL_BONUS;
+  state.sinkingUntil = (state.lastTime ?? 0) + SINK_MS;
+  return true;
+}
+
+function finishSink(state) {
+  if (!state.sinkingUntil) {
+    return;
+  }
+  if ((state.lastTime ?? 0) < state.sinkingUntil) {
+    return;
+  }
+  state.player = createInitialPlayer();
+  state.sinkingUntil = null;
 }
 
 function hop(state, direction) {
@@ -279,11 +301,15 @@ function update(state, dt) {
     state._log.push("update");
   }
   if (state.pendingDirection) {
-    hop(state, state.pendingDirection);
+    if (!state.sinkingUntil) {
+      hop(state, state.pendingDirection);
+    }
     state.pendingDirection = null;
   }
   moveHazards(state, dt);
   resolveCollisions(state);
+  resolveGoal(state);
+  finishSink(state);
 }
 
 function render(ctx, state) {
@@ -378,6 +404,8 @@ if (typeof module !== "undefined" && module.exports) {
     moveHazards,
     aabbOverlap,
     resolveCollisions,
+    resolveGoal,
+    finishSink,
     hop,
     directionFromKey,
     handleKeydown,

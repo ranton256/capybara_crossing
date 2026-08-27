@@ -87,3 +87,10 @@ The system SHALL draw each hazard using a hardcoded atlas frame at its current h
 - **WHEN** the atlas is loaded and hazards exist
 - **THEN** each hazard SHALL be drawn at its lane row and current x
 - **AND** no runtime request SHALL be made for `manifest.json`
+
+### Requirement: Player drawn on spa during sink
+While the sink beat is active, the system SHALL keep drawing the player sprite on the spa row using an existing capybara frame (no dedicated sink frames).
+
+#### Scenario: Sinking player remains visible
+- **WHEN** the sink beat is active and the render phase runs
+- **THEN** the player sprite SHALL be drawn on row 0
