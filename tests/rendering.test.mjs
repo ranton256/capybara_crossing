@@ -166,12 +166,82 @@ test("renderPlayer uses defeat frame while hurtUntil is in the future", () => {
   };
   renderPlayer(ctx, {
     atlas: stubAtlas(),
-    player: { col: 6, row: 6, facing: "up" },
-    lastTime: 100,
-    hurtUntil: 400,
+    player: { col: 6, row: 3, facing: "up" },
+    lastTime: 0,
+    hurtUntil: 550,
   });
+  assert.equal(calls.length, 1);
   assert.equal(calls[0].sx, 0);
   assert.equal(calls[0].sy, 16);
+  assert.equal(calls[0].dy, 3 * TILE_SIZE * SCALE);
+});
+
+test("renderPlayer skips blit on flicker-off frames during death beat", () => {
+  const calls = [];
+  const ctx = {
+    drawImage() {
+      calls.push(true);
+    },
+  };
+  renderPlayer(ctx, {
+    atlas: stubAtlas(),
+    player: { col: 6, row: 3, facing: "up" },
+    lastTime: 60,
+    hurtUntil: 550,
+  });
+  assert.equal(calls.length, 0);
+});
+
+test("render draws flash after player and before HUD", () => {
+  const log = [];
+  const ctx = {
+    clearRect() {
+      log.push("clearRect");
+    },
+    drawImage(_image, sx, sy) {
+      if (sy === 0 || sy === 16) {
+        log.push("player");
+      } else if (sy === 48) {
+        log.push("hazard");
+      } else {
+        log.push("tile");
+      }
+    },
+    save() {},
+    restore() {},
+    translate() {},
+    scale() {},
+    fillText(text) {
+      log.push("hud:" + text);
+    },
+    fillRect() {
+      log.push("flash");
+    },
+    fillStyle: "",
+    font: "",
+    textBaseline: "",
+  };
+  const state = {
+    board: createDefaultBoard(),
+    atlas: stubAtlas(),
+    player: { col: 6, row: 3, facing: "up" },
+    hazards: [],
+    score: 10,
+    lives: 2,
+    best: 40,
+    lastTime: 50,
+    hurtUntil: 550,
+    flashUntil: 150,
+  };
+
+  render(ctx, state);
+
+  const playerIndex = log.indexOf("player");
+  const flashIndex = log.indexOf("flash");
+  const hudIndex = log.findIndex((entry) => String(entry).startsWith("hud:"));
+  assert.ok(playerIndex >= 0);
+  assert.ok(flashIndex > playerIndex);
+  assert.ok(hudIndex > flashIndex);
 });
 
 test("renderPlayer applies sink draw offset during sink beat", () => {

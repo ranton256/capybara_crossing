@@ -18,8 +18,9 @@ const {
 } = game;
 
 test("last remaining life collision enters Game Over", () => {
+  const impact = { col: 6, row: 3, facing: "up" };
   const state = {
-    player: { col: 6, row: 3, facing: "up" },
+    player: { ...impact },
     hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 6, vx: -2.5, width: 1 }],
     lives: 1,
     score: 40,
@@ -28,8 +29,10 @@ test("last remaining life collision enters Game Over", () => {
   assert.equal(resolveCollisions(state), true);
   assert.equal(state.lives, 0);
   assert.equal(state.gameOver, true);
-  assert.deepEqual(state.player, createInitialPlayer());
+  assert.deepEqual(state.player, impact);
   assert.equal(state.score, 40);
+  assert.ok(typeof state.hurtUntil === "number");
+  assert.ok(typeof state.flashUntil === "number");
 });
 
 test("Enter restarts a Game Over session", () => {

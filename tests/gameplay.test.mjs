@@ -155,8 +155,8 @@ test("finishSink respawns at start, keeps score, bumps speed, resets watermark",
   assert.equal(state.bestRowThisLife, SPAWN_ROW);
 });
 
-test("resolveCollisions resets bestRowThisLife on death respawn", () => {
-  const { resolveCollisions } = game;
+test("finishDeath resets bestRowThisLife on death respawn", () => {
+  const { resolveCollisions, finishDeath } = game;
   const state = session({
     player: { col: 6, row: 3, facing: "up" },
     hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 6, vx: -2.5, width: 1 }],
@@ -166,11 +166,16 @@ test("resolveCollisions resets bestRowThisLife on death respawn", () => {
     lastTime: 0,
   });
   assert.equal(resolveCollisions(state), true);
+  assert.equal(state.bestRowThisLife, 2);
+  assert.equal(state.player.row, 3);
+  state.lastTime = state.hurtUntil;
+  finishDeath(state);
   assert.equal(state.bestRowThisLife, SPAWN_ROW);
+  assert.deepEqual(state.player, createInitialPlayer());
 });
 
 test("update integrates hop into hazard then collision response", () => {
-  const { update, createInitialPlayer } = game;
+  const { update } = game;
   const state = session({
     player: { col: 6, row: 4, facing: "up" },
     hazards: [{ kind: "atv", frame: "atv_red", row: 3, x: 6, vx: 0, width: 1 }],
@@ -183,9 +188,11 @@ test("update integrates hop into hazard then collision response", () => {
   });
   update(state, 0);
   assert.equal(state.lives, 2);
-  assert.deepEqual(state.player, createInitialPlayer());
+  assert.equal(state.player.row, 3);
+  assert.equal(state.player.col, 6);
   assert.equal(state.score, 30);
   assert.equal(state.pendingDirection, null);
+  assert.ok(state.hurtUntil > 0);
 });
 
 test("update integrates hop into spa with goal bonus", () => {

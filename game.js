@@ -69,7 +69,9 @@ const ARROW_KEYS = {
 const SCORE_PER_UP_HOP = 10;
 const GOAL_BONUS = 50;
 const STARTING_LIVES = 3;
-const HURT_MS = 300;
+const DEATH_MS = 550;
+const FLASH_MS = 100;
+const FLICKER_MS = 60;
 const SINK_MS = 400;
 const TRUCK_SPEED = 1.5;
 const ATV_SPEED = 2.5;
@@ -186,6 +188,14 @@ function aabbOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+function isDying(state) {
+  return (
+    !state.gameOver &&
+    typeof state.hurtUntil === "number" &&
+    (state.lastTime ?? 0) < state.hurtUntil
+  );
+}
+
 function resolveCollisions(state) {
   if (!state.player || !state.hazards) {
     return false;
@@ -194,10 +204,11 @@ function resolveCollisions(state) {
   for (const hazard of state.hazards) {
     const hazardBox = { x: hazard.x, y: hazard.row, w: hazard.width, h: 1 };
     if (aabbOverlap(playerBox, hazardBox)) {
+      const now = state.lastTime ?? 0;
       state.lives -= 1;
-      state.player = createInitialPlayer();
-      state.bestRowThisLife = SPAWN_ROW;
-      state.hurtUntil = (state.lastTime ?? 0) + HURT_MS;
+      state.pendingDirection = null;
+      state.hurtUntil = now + DEATH_MS;
+      state.flashUntil = now + FLASH_MS;
       if (state.lives <= 0) {
         state.lives = 0;
         state.gameOver = true;
@@ -230,6 +241,19 @@ function finishSink(state) {
   state.sinkingUntil = null;
   state.bestRowThisLife = SPAWN_ROW;
   state.speedFactor = (state.speedFactor ?? 1) * SPEED_BUMP;
+}
+
+function finishDeath(state) {
+  if (state.gameOver || typeof state.hurtUntil !== "number") {
+    return;
+  }
+  if ((state.lastTime ?? 0) < state.hurtUntil) {
+    return;
+  }
+  state.player = createInitialPlayer();
+  state.hurtUntil = null;
+  state.flashUntil = null;
+  state.bestRowThisLife = SPAWN_ROW;
 }
 
 function hop(state, direction) {
@@ -284,6 +308,7 @@ function restartSession(state) {
   state.pendingRestart = false;
   state.pendingDirection = null;
   state.hurtUntil = null;
+  state.flashUntil = null;
   state.sinkingUntil = null;
   state.bestRowThisLife = SPAWN_ROW;
   state.speedFactor = 1;
@@ -322,7 +347,12 @@ function renderPlayer(ctx, state) {
     return;
   }
   const now = state.lastTime ?? 0;
-  const posed = typeof state.hurtUntil === "number" && now < state.hurtUntil;
+  const posed =
+    state.gameOver ||
+    (typeof state.hurtUntil === "number" && now < state.hurtUntil);
+  if (posed && Math.floor(now / FLICKER_MS) % 2 === 1) {
+    return;
+  }
   const sinking =
     typeof state.sinkingUntil === "number" && now < state.sinkingUntil;
   let frame = DEFEAT_FRAME;
@@ -403,6 +433,15 @@ function renderHazards(ctx, state) {
   }
 }
 
+function renderFlash(ctx, state) {
+  const now = state.lastTime ?? 0;
+  if (typeof state.flashUntil !== "number" || now >= state.flashUntil) {
+    return;
+  }
+  ctx.fillStyle = "rgba(255, 248, 231, 0.45)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+}
+
 function renderHud(ctx, state) {
   if (typeof state.score !== "number") {
     return;
@@ -452,13 +491,16 @@ function update(state, dt) {
     return;
   }
   if (state.pendingDirection) {
-    if (!state.sinkingUntil) {
+    if (!state.sinkingUntil && !isDying(state)) {
       hop(state, state.pendingDirection);
     }
     state.pendingDirection = null;
   }
   moveHazards(state, dt);
-  resolveCollisions(state);
+  finishDeath(state);
+  if (!isDying(state)) {
+    resolveCollisions(state);
+  }
   resolveGoal(state);
   finishSink(state);
 }
@@ -475,6 +517,7 @@ function render(ctx, state) {
   renderBoard(ctx, state);
   renderHazards(ctx, state);
   renderPlayer(ctx, state);
+  renderFlash(ctx, state);
   renderHud(ctx, state);
   renderOverlay(ctx, state);
 }
@@ -558,6 +601,9 @@ if (typeof module !== "undefined" && module.exports) {
     HAZARD_FRAMES,
     DEFEAT_FRAME,
     STARTING_LIVES,
+    DEATH_MS,
+    FLASH_MS,
+    FLICKER_MS,
     configureCanvas,
     createDefaultBoard,
     createInitialPlayer,
@@ -567,10 +613,12 @@ if (typeof module !== "undefined" && module.exports) {
     maybeUpdateBest,
     moveHazards,
     aabbOverlap,
+    isDying,
     resolveCollisions,
     restartSession,
     resolveGoal,
     finishSink,
+    finishDeath,
     hop,
     directionFromKey,
     handleKeydown,
@@ -578,6 +626,7 @@ if (typeof module !== "undefined" && module.exports) {
     renderBoard,
     renderPlayer,
     renderHazards,
+    renderFlash,
     renderHud,
     renderOverlay,
     loadAtlasImage,
