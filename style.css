@@ -1,0 +1,19 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #14141f;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas#game {
+  display: block;
+  background: #1a1a2e;
+  /* Keep 16x16 art blocky: nearest-neighbour, never smoothed. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
