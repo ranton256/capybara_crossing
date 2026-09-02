@@ -78,6 +78,13 @@ const DEFEAT_FRAME = { sx: 0, sy: 16, sw: 16, sh: 16 };
 const TRUCK_SPEED = 1.5;
 const ATV_SPEED = 2.5;
 
+const GOAL_ROW = 0;
+const GOAL_BONUS = 50;
+const SINK_MS = 400;
+// Render-time only. The player's row stays 0; nothing non-integral is ever
+// stored in the position data.
+const SINK_DRAW_OFFSET = 6;
+
 const STARTING_LIVES = 3;
 // Timing beats, from the Fixed Parameters table.
 const DEATH_MS = 550;
@@ -180,6 +187,7 @@ function createInitialState(options = {}) {
     // Absolute deadlines on the game clock, not frame counters.
     hurtUntil: 0,
     flashUntil: 0,
+    sinkingUntil: 0,
     gameOver: false,
   };
 }
@@ -217,6 +225,32 @@ function resolveCollisions(state) {
     return true;
   }
   return false;
+}
+
+function isSinking(state) {
+  return !state.gameOver && (state.lastTime ?? 0) < state.sinkingUntil;
+}
+
+// Guarded by the beat itself so the bonus is paid once per arrival rather than
+// once per frame spent on the spa row.
+function resolveGoal(state) {
+  if (!state.player || state.gameOver || isSinking(state) || isDying(state)) {
+    return false;
+  }
+  if (state.player.row !== GOAL_ROW) {
+    return false;
+  }
+  state.score += GOAL_BONUS;
+  state.sinkingUntil = (state.lastTime ?? 0) + SINK_MS;
+  return true;
+}
+
+// Starts the next round. Deliberately leaves score and lives alone; the session
+// restart P7 adds is a different operation.
+function finishSink(state) {
+  state.player = createInitialPlayer();
+  state.bestRowThisLife = SPAWN_ROW;
+  state.sinkingUntil = 0;
 }
 
 function finishDeath(state) {
@@ -298,10 +332,10 @@ function renderBoard(state, ctx) {
 function update(state, dt) {
   state.lastDelta = dt;
   state.frames += 1;
-  const dying = isDying(state);
+  const busy = isDying(state) || isSinking(state);
   if (state.pendingDirection) {
-    // Movement is ignored for the duration of the death beat.
-    if (!dying && !state.gameOver) {
+    // Movement is ignored for the duration of either beat.
+    if (!busy && !state.gameOver) {
       hop(state, state.pendingDirection);
     }
     state.pendingDirection = null;
@@ -313,7 +347,11 @@ function update(state, dt) {
   if (!state.gameOver && state.hurtUntil && !isDying(state)) {
     finishDeath(state);
   }
+  if (!state.gameOver && state.sinkingUntil && !isSinking(state)) {
+    finishSink(state);
+  }
   resolveCollisions(state);
+  resolveGoal(state);
   return state;
 }
 
@@ -355,10 +393,11 @@ function renderPlayer(state, ctx) {
     return;
   }
   const frame = isDying(state) || state.gameOver ? DEFEAT_FRAME : playerFrame(state.player);
+  const sinkOffset = isSinking(state) ? SINK_DRAW_OFFSET : 0;
   ctx.drawImage(
     state.atlas,
     frame.sx, frame.sy, frame.sw, frame.sh,
-    state.player.col * DEST_SIZE, state.player.row * DEST_SIZE,
+    state.player.col * DEST_SIZE, state.player.row * DEST_SIZE + sinkOffset,
     DEST_SIZE, DEST_SIZE,
   );
 }
@@ -460,6 +499,10 @@ if (typeof module !== "undefined" && module.exports) {
     TRUCK_SPEED,
     ATV_SPEED,
     DEFEAT_FRAME,
+    GOAL_ROW,
+    GOAL_BONUS,
+    SINK_MS,
+    SINK_DRAW_OFFSET,
     STARTING_LIVES,
     DEATH_MS,
     FLASH_MS,
@@ -479,6 +522,9 @@ if (typeof module !== "undefined" && module.exports) {
     isDying,
     resolveCollisions,
     finishDeath,
+    isSinking,
+    resolveGoal,
+    finishSink,
     renderFlash,
     directionFromKey,
     handleKeydown,
