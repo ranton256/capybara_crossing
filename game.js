@@ -65,6 +65,17 @@ const ARROW_KEYS = {
   ArrowRight: "right",
 };
 
+// Hazard frames, transcribed from assets/sprites/manifest.json.
+const HAZARD_FRAMES = {
+  truck: { sx: 32, sy: 48, sw: 32, sh: 16 },
+  atv_red: { sx: 0, sy: 48, sw: 16, sh: 16 },
+  atv_blue: { sx: 16, sy: 48, sw: 16, sh: 16 },
+};
+
+// Tiles per second, from the Fixed Parameters table.
+const TRUCK_SPEED = 1.5;
+const ATV_SPEED = 2.5;
+
 const HUD_FONT = "16px monospace";
 const HUD_COLOR = "#f2f2e8";
 
@@ -106,6 +117,35 @@ function shouldFreeze(options = {}) {
   return false;
 }
 
+// Hazard x is a float in tile units, matching the player's col/row space so
+// P5's AABB check needs no unit conversion. Positive vx means rightward.
+function createInitialHazards() {
+  return [
+    { kind: "truck", frame: "truck", row: 1, x: 0, vx: TRUCK_SPEED, width: 2 },
+    { kind: "truck", frame: "truck", row: 1, x: 6, vx: TRUCK_SPEED, width: 2 },
+    { kind: "atv", frame: "atv_red", row: 3, x: 3, vx: -ATV_SPEED, width: 1 },
+    { kind: "atv", frame: "atv_blue", row: 3, x: 9, vx: -ATV_SPEED, width: 1 },
+  ];
+}
+
+// Wrap by subtracting a full period rather than snapping to the edge, so the
+// sub-tile remainder survives and evenly spaced vehicles stay evenly spaced.
+function moveHazards(state, dt) {
+  if (state.freeze || !state.hazards) {
+    return;
+  }
+  for (const hazard of state.hazards) {
+    hazard.x += hazard.vx * (dt / 1000);
+    const period = COLS + hazard.width;
+    if (hazard.vx > 0 && hazard.x > COLS) {
+      hazard.x -= period;
+    }
+    if (hazard.vx < 0 && hazard.x + hazard.width < 0) {
+      hazard.x += period;
+    }
+  }
+}
+
 function createInitialPlayer() {
   return { col: SPAWN_COL, row: SPAWN_ROW, facing: "up", step: 0 };
 }
@@ -119,6 +159,7 @@ function createInitialState(options = {}) {
     board: createDefaultBoard(),
     freeze: shouldFreeze(options),
     player: createInitialPlayer(),
+    hazards: createInitialHazards(),
     score: 0,
     // Farthest-north row reached this life. Scoring pays only for beating it,
     // which is what stops up/down hopping from farming points.
@@ -203,6 +244,7 @@ function update(state, dt) {
     hop(state, state.pendingDirection);
     state.pendingDirection = null;
   }
+  moveHazards(state, dt);
   return state;
 }
 
@@ -211,6 +253,32 @@ function update(state, dt) {
 function playerFrame(player) {
   const pair = PLAYER_FRAMES[player.facing] ?? PLAYER_FRAMES.up;
   return pair[player.step % pair.length];
+}
+
+// All supplied vehicle art faces left, so right-movers are mirrored. The
+// restore matters: a leaked transform would flip the player drawn next.
+function renderHazards(state, ctx) {
+  if (!state.atlas || !state.hazards) {
+    return;
+  }
+  for (const hazard of state.hazards) {
+    const frame = HAZARD_FRAMES[hazard.frame];
+    if (!frame) {
+      continue;
+    }
+    const dx = hazard.x * DEST_SIZE;
+    const dy = hazard.row * DEST_SIZE;
+    const dw = hazard.width * DEST_SIZE;
+    if (hazard.vx > 0) {
+      ctx.save();
+      ctx.translate(dx + dw, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(state.atlas, frame.sx, frame.sy, frame.sw, frame.sh, 0, 0, dw, DEST_SIZE);
+      ctx.restore();
+    } else {
+      ctx.drawImage(state.atlas, frame.sx, frame.sy, frame.sw, frame.sh, dx, dy, dw, DEST_SIZE);
+    }
+  }
 }
 
 function renderPlayer(state, ctx) {
@@ -237,6 +305,7 @@ function render(state, ctx) {
   ctx.fillStyle = CLEAR_COLOR;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   renderBoard(state, ctx);
+  renderHazards(state, ctx);
   renderPlayer(state, ctx);
   renderHud(state, ctx);
   return state;
@@ -306,6 +375,9 @@ if (typeof module !== "undefined" && module.exports) {
     SPAWN_ROW,
     SCORE_PER_FORWARD_HOP,
     PLAYER_FRAMES,
+    HAZARD_FRAMES,
+    TRUCK_SPEED,
+    ATV_SPEED,
     DIRECTION_DELTA,
     configureCanvas,
     createDefaultBoard,
@@ -314,6 +386,9 @@ if (typeof module !== "undefined" && module.exports) {
     drawTile,
     renderBoard,
     createInitialPlayer,
+    createInitialHazards,
+    moveHazards,
+    renderHazards,
     directionFromKey,
     handleKeydown,
     hop,

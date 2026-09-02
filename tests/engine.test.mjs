@@ -19,6 +19,10 @@ function makeCtx(trace = []) {
     clearRect: (...args) => trace.push(["clearRect", ...args]),
     fillRect: (...args) => trace.push(["fillRect", ...args]),
     fillText: (...args) => trace.push(["fillText", ...args]),
+    save: () => trace.push(["save"]),
+    restore: () => trace.push(["restore"]),
+    translate: (...t) => trace.push(["translate", ...t]),
+    scale: (...t) => trace.push(["scale", ...t]),
   };
 }
 

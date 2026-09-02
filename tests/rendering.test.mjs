@@ -15,6 +15,10 @@ function makeCtx(trace = []) {
     clearRect: (...a) => trace.push(["clearRect", ...a]),
     fillRect: (...a) => trace.push(["fillRect", ...a]),
     fillText: (...a) => trace.push(["fillText", ...a]),
+    save: () => trace.push(["save"]),
+    restore: () => trace.push(["restore"]),
+    translate: (...t) => trace.push(["translate", ...t]),
+    scale: (...t) => trace.push(["scale", ...t]),
     drawImage: (...a) => trace.push(["drawImage", ...a]),
   };
 }
@@ -127,8 +131,8 @@ test("render clears before drawing tiles", () => {
   state.atlas = "ATLAS";
   game.render(state, makeCtx(trace));
   assert.equal(trace[0][0], "clearRect");
-  // 84 board cells plus the player sprite.
-  assert.equal(drawCalls(trace).length, 85, "tiles and player drawn after the clear");
+  // 84 board cells, 4 hazards, and the player sprite.
+  assert.equal(drawCalls(trace).length, 89, "tiles, hazards and player drawn after the clear");
   const firstDraw = trace.findIndex((c) => c[0] === "drawImage");
   assert.ok(firstDraw > 0, "tiles must come after the clear");
 });
