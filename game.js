@@ -72,9 +72,20 @@ const HAZARD_FRAMES = {
   atv_blue: { sx: 16, sy: 48, sw: 16, sh: 16 },
 };
 
+const DEFEAT_FRAME = { sx: 0, sy: 16, sw: 16, sh: 16 };
+
 // Tiles per second, from the Fixed Parameters table.
 const TRUCK_SPEED = 1.5;
 const ATV_SPEED = 2.5;
+
+const STARTING_LIVES = 3;
+// Timing beats, from the Fixed Parameters table.
+const DEATH_MS = 550;
+const FLASH_MS = 100;
+// At 2.5 tiles/sec this is a quarter tile, well inside the one-tile overlap
+// window, so a stalled tab cannot tunnel a hazard through the player.
+const MAX_DELTA_MS = 100;
+const FLASH_COLOR = "rgba(255, 240, 200, 0.55)";
 
 const HUD_FONT = "16px monospace";
 const HUD_COLOR = "#f2f2e8";
@@ -165,7 +176,54 @@ function createInitialState(options = {}) {
     // which is what stops up/down hopping from farming points.
     bestRowThisLife: SPAWN_ROW,
     pendingDirection: null,
+    lives: STARTING_LIVES,
+    // Absolute deadlines on the game clock, not frame counters.
+    hurtUntil: 0,
+    flashUntil: 0,
+    gameOver: false,
   };
+}
+
+function aabbOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// One predicate drives input suppression, the defeat pose, and collision
+// suppression, so they cannot disagree about whether a death is in progress.
+function isDying(state) {
+  return !state.gameOver && (state.lastTime ?? 0) < state.hurtUntil;
+}
+
+function resolveCollisions(state) {
+  if (!state.player || !state.hazards || state.gameOver || isDying(state)) {
+    return false;
+  }
+  const playerBox = { x: state.player.col, y: state.player.row, w: 1, h: 1 };
+  for (const hazard of state.hazards) {
+    const hazardBox = { x: hazard.x, y: hazard.row, w: hazard.width, h: 1 };
+    if (!aabbOverlap(playerBox, hazardBox)) {
+      continue;
+    }
+    const now = state.lastTime ?? 0;
+    state.lives -= 1;
+    state.pendingDirection = null;
+    state.flashUntil = now + FLASH_MS;
+    if (state.lives <= 0) {
+      state.lives = 0;
+      state.gameOver = true;
+    } else {
+      state.hurtUntil = now + DEATH_MS;
+    }
+    return true;
+  }
+  return false;
+}
+
+function finishDeath(state) {
+  state.player = createInitialPlayer();
+  // Reset the watermark so the next climb can score again.
+  state.bestRowThisLife = SPAWN_ROW;
+  state.hurtUntil = 0;
 }
 
 function directionFromKey(key) {
@@ -240,11 +298,22 @@ function renderBoard(state, ctx) {
 function update(state, dt) {
   state.lastDelta = dt;
   state.frames += 1;
+  const dying = isDying(state);
   if (state.pendingDirection) {
-    hop(state, state.pendingDirection);
+    // Movement is ignored for the duration of the death beat.
+    if (!dying && !state.gameOver) {
+      hop(state, state.pendingDirection);
+    }
     state.pendingDirection = null;
   }
   moveHazards(state, dt);
+  // The beat must finish before collision runs. Otherwise the player is still
+  // pinned on the hazard that killed them and is immediately hit again,
+  // draining a second life for one impact.
+  if (!state.gameOver && state.hurtUntil && !isDying(state)) {
+    finishDeath(state);
+  }
+  resolveCollisions(state);
   return state;
 }
 
@@ -285,7 +354,7 @@ function renderPlayer(state, ctx) {
   if (!state.atlas || !state.player) {
     return;
   }
-  const frame = playerFrame(state.player);
+  const frame = isDying(state) || state.gameOver ? DEFEAT_FRAME : playerFrame(state.player);
   ctx.drawImage(
     state.atlas,
     frame.sx, frame.sy, frame.sw, frame.sh,
@@ -294,10 +363,21 @@ function renderPlayer(state, ctx) {
   );
 }
 
+// Drawn over the world but under the HUD, so score and lives stay readable
+// at exactly the moment the player wants to read them.
+function renderFlash(state, ctx) {
+  if ((state.lastTime ?? 0) >= state.flashUntil) {
+    return;
+  }
+  ctx.fillStyle = FLASH_COLOR;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+}
+
 function renderHud(state, ctx) {
   ctx.font = HUD_FONT;
   ctx.fillStyle = HUD_COLOR;
   ctx.fillText(`Score ${state.score}`, 8, 20);
+  ctx.fillText(`Lives ${state.lives}`, CANVAS_WIDTH - 84, 20);
 }
 
 function render(state, ctx) {
@@ -307,6 +387,7 @@ function render(state, ctx) {
   renderBoard(state, ctx);
   renderHazards(state, ctx);
   renderPlayer(state, ctx);
+  renderFlash(state, ctx);
   renderHud(state, ctx);
   return state;
 }
@@ -314,7 +395,7 @@ function render(state, ctx) {
 // One frame: update runs to completion, then render.
 function tick(state, ctx, now) {
   const lastTime = state.lastTime ?? now;
-  const dt = now - lastTime;
+  const dt = Math.min(now - lastTime, MAX_DELTA_MS);
   state.lastTime = now;
   update(state, dt);
   render(state, ctx);
@@ -378,6 +459,11 @@ if (typeof module !== "undefined" && module.exports) {
     HAZARD_FRAMES,
     TRUCK_SPEED,
     ATV_SPEED,
+    DEFEAT_FRAME,
+    STARTING_LIVES,
+    DEATH_MS,
+    FLASH_MS,
+    MAX_DELTA_MS,
     DIRECTION_DELTA,
     configureCanvas,
     createDefaultBoard,
@@ -389,6 +475,11 @@ if (typeof module !== "undefined" && module.exports) {
     createInitialHazards,
     moveHazards,
     renderHazards,
+    aabbOverlap,
+    isDying,
+    resolveCollisions,
+    finishDeath,
+    renderFlash,
     directionFromKey,
     handleKeydown,
     hop,
