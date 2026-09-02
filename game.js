@@ -13,6 +13,31 @@ const CANVAS_WIDTH = COLS * TILE_SIZE * SCALE;
 const CANVAS_HEIGHT = ROWS * TILE_SIZE * SCALE;
 
 const CLEAR_COLOR = "#1a1a2e";
+const DEST_SIZE = TILE_SIZE * SCALE;
+
+// Source rectangles transcribed from assets/sprites/manifest.json at authoring
+// time. The game never reads that file: fetch is blocked over file://.
+const ATLAS_PATH = "assets/sprites/capybara_crossing.png";
+const TILE_FRAMES = {
+  tile_spa: { sx: 48, sy: 32, sw: 16, sh: 16 },
+  tile_path: { sx: 16, sy: 32, sw: 16, sh: 16 },
+  tile_median: { sx: 32, sy: 32, sw: 16, sh: 16 },
+  tile_start: { sx: 0, sy: 32, sw: 16, sh: 16 },
+};
+
+// One tile key per board row, top to bottom, from the Fixed Parameters table.
+const ROW_TILES = [
+  "tile_spa",
+  "tile_path",
+  "tile_median",
+  "tile_path",
+  "tile_start",
+  "tile_start",
+  "tile_start",
+];
+
+// Road rows; P4's traffic lanes read the same indices.
+const ROAD_ROWS = [1, 3];
 
 function configureCanvas(canvas) {
   canvas.width = CANVAS_WIDTH;
@@ -22,12 +47,62 @@ function configureCanvas(canvas) {
   return ctx;
 }
 
+function createDefaultBoard() {
+  return ROW_TILES.map((tileKey) => Array(COLS).fill(tileKey));
+}
+
+// The image constructor is injectable so tests can resolve loading without a
+// DOM; the browser path uses the global Image.
+function loadAtlas(callback, options = {}) {
+  const ImageCtor = options.ImageCtor ?? (typeof Image !== "undefined" ? Image : undefined);
+  if (!ImageCtor) {
+    return undefined;
+  }
+  const image = new ImageCtor();
+  image.onload = () => callback(image);
+  image.src = options.atlasPath ?? ATLAS_PATH;
+  return image;
+}
+
 function createInitialState() {
   return {
     lastTime: undefined,
     lastDelta: 0,
     frames: 0,
+    atlas: undefined,
+    board: createDefaultBoard(),
   };
+}
+
+function drawTile(ctx, atlas, col, row, tileKey) {
+  const frame = TILE_FRAMES[tileKey];
+  if (!frame) {
+    return;
+  }
+  ctx.drawImage(
+    atlas,
+    frame.sx,
+    frame.sy,
+    frame.sw,
+    frame.sh,
+    col * DEST_SIZE,
+    row * DEST_SIZE,
+    DEST_SIZE,
+    DEST_SIZE,
+  );
+}
+
+// The loop starts before the atlas decodes, so a missing atlas is normal
+// startup, not an error.
+function renderBoard(state, ctx) {
+  if (!state.atlas || !state.board) {
+    return;
+  }
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      drawTile(ctx, state.atlas, col, row, state.board[row][col]);
+    }
+  }
 }
 
 // Update phase. P1 has nothing to move yet, but it threads elapsed time
@@ -44,6 +119,7 @@ function render(state, ctx) {
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.fillStyle = CLEAR_COLOR;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  renderBoard(state, ctx);
   return state;
 }
 
@@ -80,6 +156,9 @@ function boot(options = {}) {
   }
   const ctx = configureCanvas(canvas);
   const state = createInitialState();
+  loadAtlas((atlas) => {
+    state.atlas = atlas;
+  }, options);
   startLoop(state, ctx, options);
   return state;
 }
@@ -95,7 +174,16 @@ if (typeof module !== "undefined" && module.exports) {
     CANVAS_WIDTH,
     CANVAS_HEIGHT,
     CLEAR_COLOR,
+    DEST_SIZE,
+    ATLAS_PATH,
+    TILE_FRAMES,
+    ROW_TILES,
+    ROAD_ROWS,
     configureCanvas,
+    createDefaultBoard,
+    loadAtlas,
+    drawTile,
+    renderBoard,
     createInitialState,
     update,
     render,
