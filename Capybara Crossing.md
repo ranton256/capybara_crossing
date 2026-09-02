@@ -6,7 +6,22 @@ This document is structured as a set of art requirements followed by functional 
 
 ## Game Overview 
 
-Capybara Crossing is a retro arcade tutorial game designed as a zero-dependency, browser-based JavaScript application. Players guide a pixel-art capybara across a busy jungle pathway filled with moving obstacles to reach a warm mud spa. The game focuses on classic obstacle-dodging mechanics, utilizing precise grid-based movement, 16x16 pixel-art assets, and a deterministic game loop to deliver a laid-back arcade experience that runs directly in any modern web browser.
+Capybara Crossing is a retro arcade tutorial game designed as a zero-dependency, browser-based JavaScript application. Players guide a pixel-art capybara across a busy jungle pathway filled with moving obstacles to reach a warm mud spa. The game focuses on classic obstacle-dodging mechanics, utilizing precise grid-based movement, 16x16 pixel-art assets, and a frame-rate independent game loop to deliver a laid-back arcade experience that runs directly in any modern web browser.
+
+## Fixed Parameters
+
+These values are given, not design decisions. Use them exactly.
+
+| Parameter | Value |
+| :---- | :---- |
+| Board | 12 columns × 7 rows of 16×16 tiles |
+| Canvas | 576 × 336 (integer scale ×3) |
+| Rows (top→bottom) | 0 spa · 1 road · 2 median · 3 road · 4–6 riverbank |
+| Spawn | column 6, row 6, facing up |
+| Starting lives | 3 |
+| Row 1 traffic | trucks, 2 tiles wide, moving right at 1.5 tiles/sec |
+| Row 3 traffic | ATVs, 1 tile wide, moving left at 2.5 tiles/sec |
+| Timing beats | death 550ms · spa sink 400ms · hit flash 100ms |
 
 ## Pixel-Art Asset Layout (16x16 Grid)
 
@@ -53,6 +68,11 @@ For a simple retro arcade tutorial, using a **16x16 pixel grid** per tile/sprite
 
 Pack these into a single sprite sheet (e.g., 128 x 128 pixels) to optimize rendering in a browser canvas or game engine.
 
+Two constraints of the supplied art:
+
+* `tile_start` carries its grass band in the top row only, and `tile_path` has road shoulders baked into its top and bottom rows. Use exactly one road row per lane; stacked riverbank rows will repeat the grass band.
+* All vehicle sprites face left. Flip horizontally when drawing right-moving lanes.
+
 # Feature: Gameplay Scenarios
 
 As a retro arcade gamer, I want to guide a delightfully chill pixel-art capybara safely across a busy jungle pathway to a warm mud spa, so that I can experience classic obstacle-dodging action with maximum laid-back vibes.
@@ -62,28 +82,28 @@ As a retro arcade gamer, I want to guide a delightfully chill pixel-art capybara
 * **Given** the capybara is at the starting position at the bottom of the screen  
 * **When** the player presses the **Up** directional key  
 * **Then** the capybara sprite waddles forward by one grid unit  
-* **And** the game score increases by **10 points**
+* **And** the game score increases by **10 points**, but only if that row is farther north than any row reached during the current life. The watermark resets to the spawn row on death and after each spa clear.
 
 ### Scenario: Dodging jungle hazards
 
 * **Given** a speeding motorized all-terrain vehicle is crossing the jungle path lane  
 * **When** the capybara sprite's collision box overlaps with the vehicle's collision box  
-* **Then** the capybara triggers a mild, unfazed shrug animation  
+* **Then** the capybara holds its defeat pose, with movement input ignored for the duration of the death beat  
 * **And** the player loses **1 life**  
 * **And** the capybara respawns calmly at the starting position
 
 ### Scenario: Reaching the ultimate goal (The Hot Mud Spa)
 
-* **Given** the capybara is positioned directly in front of an open, steaming mud bath at the top of the screen  
+* **Given** the capybara is positioned directly below the steaming mud spa at the top of the screen (the entire top row is the goal; there are no separate bays and no occupancy state)  
 * **When** the player presses the **Up** directional key into the goal zone  
 * **Then** the capybara happily sinks into the mud  
 * **And** the player is awarded **50 bonus points**  
-* **And** a fresh, slightly more energetic capybara appears at the start for the next round
+* **And** a fresh capybara appears at the start for the next round
 
 ## Feature: Game Engine Architecture and Loop Execution
 
 As a game developer building a zero-dependency JavaScript browser game,  
-I want a deterministic game loop and modular file structure,  
+I want a frame-rate independent game loop and modular file structure,  
 So that the game runs smoothly using native browser APIs without external build tools.
 
 ### Scenario: Initializing the zero-dependency browser environment
@@ -92,6 +112,15 @@ So that the game runs smoothly using native browser APIs without external build 
 * **When** the user opens **index.html** in a modern web browser without a local server or package manager  
 * **Then** the canvas viewport renders correctly with crisp pixel-art scaling via disabled anti-aliasing styles  
 * **And** the game executes directly in the runtime environment without throwing dependency or bundling errors
+* **And** the atlas PNG is loaded through an `<img>` element, with sprite source rectangles written as constants in **game.js**
+* **And** the game performs no runtime `fetch` or `XMLHttpRequest` for **manifest.json**, and uses no `<script type="module">` — browsers block both over `file://`. `manifest.json` is a build-time reference for humans only.
+
+### Scenario: Keeping game logic unit-testable
+
+* **Given** the game logic and the canvas/DOM glue both live in **game.js**  
+* **When** a test runner imports the file outside a browser  
+* **Then** state transitions (hop, hazard motion, collision, scoring, lifecycle) are plain functions callable without a canvas or DOM  
+* **And** the file exposes them through a guarded `module.exports` block that the browser ignores, so the zero-dependency boot is unaffected
 
 ### Scenario: Synchronizing the game update and render cycle
 
@@ -99,6 +128,7 @@ So that the game runs smoothly using native browser APIs without external build 
 * **When** the browser triggers the native **requestAnimationFrame** callback  
 * **Then** the update phase processes player inputs, moves hazards, and evaluates collision or goal conditions first  
 * **And** the render phase subsequently clears the canvas and draws the background, entities, and UI in back-to-front order
+* **And** hazard speeds are expressed in tiles per second and scale by elapsed time, so motion is identical at 60Hz and 120Hz
 
 ## Feature: Discrete Grid Input Management
 
@@ -125,8 +155,8 @@ So that I can cleanly navigate the game board without floating-point drifting.
 ## Feature: Canvas Rendering Pipeline
 
 As a player viewing the arcade screen,  
-I want my directional keystrokes to translate into precise movements,  
-So that I can cleanly navigate the game board without floating-point drifting.
+I want each frame drawn cleanly in a fixed layer order,  
+So that the board reads clearly without ghosting.
 
 ### Scenario: Clearing previous frame artifacts
 
@@ -170,6 +200,12 @@ So that I can implement accurate hit-boxes and penalty logic in vanilla JavaScri
 * **And** the player loses **1 life** from the global state counter  
 * **And** the capybara position instantly resets to the initial starting coordinates
 
+### Scenario: Continuous traffic flow
+
+* **Given** a hazard traveling horizontally in its lane  
+* **When** its trailing edge passes the canvas boundary  
+* **Then** it reappears at the opposite edge and continues at the same speed
+
 ### Scenario: Safe passing between hazard bounds
 
 * **Given** the player capybara occupies a safe resting median tile between road lanes  
@@ -184,7 +220,7 @@ So that I can implement accurate hit-boxes and penalty logic in vanilla JavaScri
 * **When** a collision event with a moving hazard is registered by the system  
 * **Then** the remaining life count decreases to **0**  
 * **And** the game state transitions from active gameplay to a "Game Over" screen  
-* **And** final score submission or high-score reset procedures are initialized
+* **And** the final score is displayed, and pressing **Enter** or **Space** starts a new run
 
 # Optional features
 
@@ -199,15 +235,7 @@ Classic arcade games like Frogger use time limits to prevent players from campin
   * **Requirement:** If the timer reaches zero before reaching the goal, the player automatically loses **1 life** and the round resets, mirroring a hazard collision.  
   * **Requirement:** Award bonus score points for every second remaining when the goal is successfully reached.
 
-### **2\. Multi-Speed and Multi-Lane Hazard Mechanics**
-
-Right now, hazards are described simply, but adding complexity teaches students array management and velocity scaling.
-
-* **Feature:** **Dynamic Traffic Patterns**  
-  * **Requirement:** Define multiple road lanes where hazards travel at varying horizontal speeds and directions (e.g., alternating left-to-right and right-to-left rows).  
-  * **Requirement:** Implement screen-wrapping logic so that when a vehicle exits the canvas boundary on one side, it reappears on the opposite side to maintain continuous flow.
-
-### **3\. Progressive Difficulty Scaling**
+### **2\. Progressive Difficulty Scaling**
 
 To make the game replayable, subsequent rounds need to ramp up the challenge.
 
@@ -215,7 +243,7 @@ To make the game replayable, subsequent rounds need to ramp up the challenge.
   * **Requirement:** When a player successfully reaches the goal, increment a difficulty multiplier or level counter.  
   * **Requirement:** Increase the movement speed of all active hazard entities by a set percentage (e.g., \+10% speed per level) with each successful round.
 
-### **4\. Audio Feedback (Web Audio API)**
+### **3\. Audio Feedback (Web Audio API)**
 
 Sound effects elevate retro games immensely, and students can implement basic retro beeps using the native browser API without importing audio files.
 
@@ -223,7 +251,7 @@ Sound effects elevate retro games immensely, and students can implement basic re
   * **Requirement:** Utilize the browser's built-in **Web Audio API** (`AudioContext`) to generate synthesized sound effects.  
   * **Requirement:** Trigger distinct procedural tones or frequency sweeps for specific game events: a short rising beep for a successful forward hop, a low buzz for losing a life, and a joyful chime sequence for reaching the mud spa.
 
-### **5\. Persistent High Scores (Local Storage)**
+### **4\. Persistent High Scores (Local Storage)**
 
 Adding score tracking encourages students to learn how to save data across browser sessions.
 
