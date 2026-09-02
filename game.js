@@ -94,8 +94,12 @@ const FLASH_MS = 100;
 const MAX_DELTA_MS = 100;
 const FLASH_COLOR = "rgba(255, 240, 200, 0.55)";
 
+const RESTART_KEYS = { Enter: true, " ": true, Space: true, Spacebar: true };
+
 const HUD_FONT = "16px monospace";
 const HUD_COLOR = "#f2f2e8";
+const OVERLAY_SCRIM = "rgba(10, 10, 20, 0.72)";
+const OVERLAY_TITLE_FONT = "32px monospace";
 
 function configureCanvas(canvas) {
   canvas.width = CANVAS_WIDTH;
@@ -149,7 +153,7 @@ function createInitialHazards() {
 // Wrap by subtracting a full period rather than snapping to the edge, so the
 // sub-tile remainder survives and evenly spaced vehicles stay evenly spaced.
 function moveHazards(state, dt) {
-  if (state.freeze || !state.hazards) {
+  if (state.freeze || state.gameOver || !state.hazards) {
     return;
   }
   for (const hazard of state.hazards) {
@@ -183,6 +187,7 @@ function createInitialState(options = {}) {
     // which is what stops up/down hopping from farming points.
     bestRowThisLife: SPAWN_ROW,
     pendingDirection: null,
+    pendingRestart: false,
     lives: STARTING_LIVES,
     // Absolute deadlines on the game clock, not frame counters.
     hurtUntil: 0,
@@ -227,6 +232,24 @@ function resolveCollisions(state) {
   return false;
 }
 
+// Rebuilt from the same constructors boot uses, so a restart is a fresh start
+// by construction. Mutates in place: the loop closure and the key listener both
+// hold this object.
+function restartSession(state) {
+  state.player = createInitialPlayer();
+  state.hazards = createInitialHazards();
+  state.score = 0;
+  state.lives = STARTING_LIVES;
+  state.bestRowThisLife = SPAWN_ROW;
+  state.hurtUntil = 0;
+  state.flashUntil = 0;
+  state.sinkingUntil = 0;
+  state.gameOver = false;
+  state.pendingDirection = null;
+  state.pendingRestart = false;
+  return state;
+}
+
 function isSinking(state) {
   return !state.gameOver && (state.lastTime ?? 0) < state.sinkingUntil;
 }
@@ -264,13 +287,30 @@ function directionFromKey(key) {
   return ARROW_KEYS[key];
 }
 
+function isRestartKey(key) {
+  return Boolean(RESTART_KEYS[key]);
+}
+
+// The handler only records intent; update is the sole mutator of the world, so
+// a keypress arriving mid-render cannot tear a frame.
 function handleKeydown(state, event) {
-  const direction = directionFromKey(event && event.key);
-  if (!direction) {
-    return false;
+  const key = event && event.key;
+  let acted = false;
+  if (state.gameOver) {
+    // Arrow keys are dead while game over, so a queued hop cannot leak into
+    // the new run.
+    if (isRestartKey(key)) {
+      state.pendingRestart = true;
+      acted = true;
+    }
+  } else if (directionFromKey(key)) {
+    state.pendingDirection = directionFromKey(key);
+    acted = true;
   }
-  state.pendingDirection = direction;
-  return true;
+  if (acted && event && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+  return acted;
 }
 
 // Discrete grid move. Positions stay integer columns and rows; nothing ever
@@ -332,6 +372,9 @@ function renderBoard(state, ctx) {
 function update(state, dt) {
   state.lastDelta = dt;
   state.frames += 1;
+  if (state.pendingRestart) {
+    restartSession(state);
+  }
   const busy = isDying(state) || isSinking(state);
   if (state.pendingDirection) {
     // Movement is ignored for the duration of either beat.
@@ -419,6 +462,21 @@ function renderHud(state, ctx) {
   ctx.fillText(`Lives ${state.lives}`, CANVAS_WIDTH - 84, 20);
 }
 
+function renderOverlay(state, ctx) {
+  if (!state.gameOver) {
+    return;
+  }
+  // A partial scrim, so the capybara's defeat pose stays visible underneath.
+  ctx.fillStyle = OVERLAY_SCRIM;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.fillStyle = HUD_COLOR;
+  ctx.font = OVERLAY_TITLE_FONT;
+  ctx.fillText("GAME OVER", CANVAS_WIDTH / 2 - 96, CANVAS_HEIGHT / 2 - 24);
+  ctx.font = HUD_FONT;
+  ctx.fillText(`Final score ${state.score}`, CANVAS_WIDTH / 2 - 68, CANVAS_HEIGHT / 2 + 8);
+  ctx.fillText("Press Enter or Space to play again", CANVAS_WIDTH / 2 - 148, CANVAS_HEIGHT / 2 + 40);
+}
+
 function render(state, ctx) {
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.fillStyle = CLEAR_COLOR;
@@ -428,6 +486,7 @@ function render(state, ctx) {
   renderPlayer(state, ctx);
   renderFlash(state, ctx);
   renderHud(state, ctx);
+  renderOverlay(state, ctx);
   return state;
 }
 
@@ -527,6 +586,9 @@ if (typeof module !== "undefined" && module.exports) {
     finishSink,
     renderFlash,
     directionFromKey,
+    isRestartKey,
+    restartSession,
+    renderOverlay,
     handleKeydown,
     hop,
     playerFrame,
