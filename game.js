@@ -64,13 +64,27 @@ function loadAtlas(callback, options = {}) {
   return image;
 }
 
-function createInitialState() {
+// The visual gate boots with ?freeze=1 so moving entities stay at their spawn
+// coordinates and the baseline image does not depend on timing.
+function shouldFreeze(options = {}) {
+  if (options.freeze === true) {
+    return true;
+  }
+  const loc = options.location ?? (typeof location !== "undefined" ? location : undefined);
+  if (loc && typeof loc.search === "string") {
+    return loc.search.indexOf("freeze=1") !== -1;
+  }
+  return false;
+}
+
+function createInitialState(options = {}) {
   return {
     lastTime: undefined,
     lastDelta: 0,
     frames: 0,
     atlas: undefined,
     board: createDefaultBoard(),
+    freeze: shouldFreeze(options),
   };
 }
 
@@ -155,7 +169,7 @@ function boot(options = {}) {
     return undefined;
   }
   const ctx = configureCanvas(canvas);
-  const state = createInitialState();
+  const state = createInitialState(options);
   loadAtlas((atlas) => {
     state.atlas = atlas;
   }, options);
@@ -181,6 +195,7 @@ if (typeof module !== "undefined" && module.exports) {
     ROAD_ROWS,
     configureCanvas,
     createDefaultBoard,
+    shouldFreeze,
     loadAtlas,
     drawTile,
     renderBoard,

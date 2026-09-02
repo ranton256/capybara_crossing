@@ -150,3 +150,23 @@ test("boot loads the atlas into state", () => {
   created[0].onload();
   assert.equal(state.atlas, created[0]);
 });
+
+test("freeze flag reads freeze=1 from the query string", () => {
+  assert.equal(game.shouldFreeze({ location: { search: "?freeze=1" } }), true);
+  assert.equal(game.shouldFreeze({ location: { search: "?other=1" } }), false);
+  assert.equal(game.shouldFreeze({ location: { search: "" } }), false);
+  assert.equal(game.shouldFreeze({ freeze: true }), true);
+  assert.equal(game.shouldFreeze({}), false);
+});
+
+test("boot stores the freeze flag on state", () => {
+  const ctx = makeCtx();
+  const canvas = { width: 0, height: 0, getContext: () => ctx };
+  const state = game.boot({
+    document: { getElementById: () => canvas },
+    scheduler: () => {},
+    ImageCtor: fakeImageCtor([]),
+    location: { search: "?freeze=1" },
+  });
+  assert.equal(state.freeze, true);
+});

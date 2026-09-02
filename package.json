@@ -8,6 +8,11 @@
   "scripts": {
     "test": "node --test --experimental-test-coverage --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 --test-coverage-include=game.js '--test-coverage-exclude=tests/**' tests/*.test.mjs",
     "test:watch": "node --test --watch tests/*.test.mjs",
-    "prepare": "node scripts/install-hooks.mjs"
+    "prepare": "node scripts/install-hooks.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
   }
 }
