@@ -20,14 +20,31 @@ npm is **dev-only**: unit tests and one browser visual test.
 
 ## Run
 
-No install required:
+No install required. Double-click `index.html`, or from the repo root:
 
 ```bash
-open index.html
+open index.html        # macOS
+xdg-open index.html    # Linux
+start index.html       # Windows (cmd)
 ```
 
-Nothing is fetched at runtime, so `file://` works with no server. Add `?freeze=1`
-to hold traffic still (used by the visual test).
+On Windows PowerShell, `start` needs the explicit path: `start .\index.html`.
+Any browser's File -> Open works too.
+
+Nothing is fetched at runtime, so `file://` works with no server.
+
+### Freeze traffic
+
+`?freeze=1` holds the vehicles at their starting positions; the visual test uses
+it to keep its baseline stable. A query string needs a full URL, so the commands
+above will not carry it. Open the page normally and append `?freeze=1` in the
+address bar, or pass the whole URL:
+
+```bash
+open "file://$PWD/index.html?freeze=1"                 # macOS
+xdg-open "file://$PWD/index.html?freeze=1"             # Linux
+start "" "file://%CD%/index.html?freeze=1"             # Windows (cmd)
+```
 
 ## Development
 
