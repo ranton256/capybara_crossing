@@ -39,6 +39,35 @@ const ROW_TILES = [
 // Road rows; P4's traffic lanes read the same indices.
 const ROAD_ROWS = [1, 3];
 
+const SPAWN_COL = 6;
+const SPAWN_ROW = 6;
+const SCORE_PER_FORWARD_HOP = 10;
+
+// Walk frame pairs, transcribed from assets/sprites/manifest.json.
+const PLAYER_FRAMES = {
+  up: [{ sx: 0, sy: 0, sw: 16, sh: 16 }, { sx: 16, sy: 0, sw: 16, sh: 16 }],
+  down: [{ sx: 32, sy: 0, sw: 16, sh: 16 }, { sx: 48, sy: 0, sw: 16, sh: 16 }],
+  left: [{ sx: 64, sy: 0, sw: 16, sh: 16 }, { sx: 80, sy: 0, sw: 16, sh: 16 }],
+  right: [{ sx: 96, sy: 0, sw: 16, sh: 16 }, { sx: 112, sy: 0, sw: 16, sh: 16 }],
+};
+
+const DIRECTION_DELTA = {
+  up: { col: 0, row: -1 },
+  down: { col: 0, row: 1 },
+  left: { col: -1, row: 0 },
+  right: { col: 1, row: 0 },
+};
+
+const ARROW_KEYS = {
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+};
+
+const HUD_FONT = "16px monospace";
+const HUD_COLOR = "#f2f2e8";
+
 function configureCanvas(canvas) {
   canvas.width = CANVAS_WIDTH;
   canvas.height = CANVAS_HEIGHT;
@@ -77,6 +106,10 @@ function shouldFreeze(options = {}) {
   return false;
 }
 
+function createInitialPlayer() {
+  return { col: SPAWN_COL, row: SPAWN_ROW, facing: "up", step: 0 };
+}
+
 function createInitialState(options = {}) {
   return {
     lastTime: undefined,
@@ -85,7 +118,49 @@ function createInitialState(options = {}) {
     atlas: undefined,
     board: createDefaultBoard(),
     freeze: shouldFreeze(options),
+    player: createInitialPlayer(),
+    score: 0,
+    // Farthest-north row reached this life. Scoring pays only for beating it,
+    // which is what stops up/down hopping from farming points.
+    bestRowThisLife: SPAWN_ROW,
+    pendingDirection: null,
   };
+}
+
+function directionFromKey(key) {
+  return ARROW_KEYS[key];
+}
+
+function handleKeydown(state, event) {
+  const direction = directionFromKey(event && event.key);
+  if (!direction) {
+    return false;
+  }
+  state.pendingDirection = direction;
+  return true;
+}
+
+// Discrete grid move. Positions stay integer columns and rows; nothing ever
+// holds a fractional player coordinate.
+function hop(state, direction) {
+  const delta = DIRECTION_DELTA[direction];
+  if (!delta || !state.player) {
+    return false;
+  }
+  const nextCol = state.player.col + delta.col;
+  const nextRow = state.player.row + delta.row;
+  if (nextCol < 0 || nextCol >= COLS || nextRow < 0 || nextRow >= ROWS) {
+    return false;
+  }
+  state.player.col = nextCol;
+  state.player.row = nextRow;
+  state.player.facing = direction;
+  state.player.step = (state.player.step + 1) % 2;
+  if (nextRow < state.bestRowThisLife) {
+    state.bestRowThisLife = nextRow;
+    state.score += SCORE_PER_FORWARD_HOP;
+  }
+  return true;
 }
 
 function drawTile(ctx, atlas, col, row, tileKey) {
@@ -124,16 +199,46 @@ function renderBoard(state, ctx) {
 function update(state, dt) {
   state.lastDelta = dt;
   state.frames += 1;
+  if (state.pendingDirection) {
+    hop(state, state.pendingDirection);
+    state.pendingDirection = null;
+  }
   return state;
 }
 
 // Render phase. Clears the whole surface first so no previous frame shows
 // through, then paints the empty board colour.
+function playerFrame(player) {
+  const pair = PLAYER_FRAMES[player.facing] ?? PLAYER_FRAMES.up;
+  return pair[player.step % pair.length];
+}
+
+function renderPlayer(state, ctx) {
+  if (!state.atlas || !state.player) {
+    return;
+  }
+  const frame = playerFrame(state.player);
+  ctx.drawImage(
+    state.atlas,
+    frame.sx, frame.sy, frame.sw, frame.sh,
+    state.player.col * DEST_SIZE, state.player.row * DEST_SIZE,
+    DEST_SIZE, DEST_SIZE,
+  );
+}
+
+function renderHud(state, ctx) {
+  ctx.font = HUD_FONT;
+  ctx.fillStyle = HUD_COLOR;
+  ctx.fillText(`Score ${state.score}`, 8, 20);
+}
+
 function render(state, ctx) {
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.fillStyle = CLEAR_COLOR;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   renderBoard(state, ctx);
+  renderPlayer(state, ctx);
+  renderHud(state, ctx);
   return state;
 }
 
@@ -173,6 +278,10 @@ function boot(options = {}) {
   loadAtlas((atlas) => {
     state.atlas = atlas;
   }, options);
+  const target = options.keyTarget ?? doc;
+  if (target && typeof target.addEventListener === "function") {
+    target.addEventListener("keydown", (event) => handleKeydown(state, event));
+  }
   startLoop(state, ctx, options);
   return state;
 }
@@ -193,12 +302,24 @@ if (typeof module !== "undefined" && module.exports) {
     TILE_FRAMES,
     ROW_TILES,
     ROAD_ROWS,
+    SPAWN_COL,
+    SPAWN_ROW,
+    SCORE_PER_FORWARD_HOP,
+    PLAYER_FRAMES,
+    DIRECTION_DELTA,
     configureCanvas,
     createDefaultBoard,
     shouldFreeze,
     loadAtlas,
     drawTile,
     renderBoard,
+    createInitialPlayer,
+    directionFromKey,
+    handleKeydown,
+    hop,
+    playerFrame,
+    renderPlayer,
+    renderHud,
     createInitialState,
     update,
     render,

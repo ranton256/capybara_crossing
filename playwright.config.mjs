@@ -13,9 +13,11 @@ export default defineConfig({
   reporter: "list",
   expect: {
     toHaveScreenshot: {
-      // Nearest-neighbour pixel art with no text: near-exact across machines,
-      // with a small allowance for PNG encoder differences.
-      maxDiffPixelRatio: 0.01,
+      // Deliberately tight. An earlier 1% ratio was loose enough that an
+      // entire missing player sprite plus HUD text (~0.7% of the canvas)
+      // compared as unchanged. The render is integer-aligned nearest-neighbour
+      // blitting, so it is deterministic; this only absorbs encoder noise.
+      maxDiffPixels: 40,
     },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

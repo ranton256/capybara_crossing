@@ -11,8 +11,10 @@ function makeCtx(trace = []) {
     trace,
     imageSmoothingEnabled: true,
     fillStyle: null,
+    font: null,
     clearRect: (...a) => trace.push(["clearRect", ...a]),
     fillRect: (...a) => trace.push(["fillRect", ...a]),
+    fillText: (...a) => trace.push(["fillText", ...a]),
     drawImage: (...a) => trace.push(["drawImage", ...a]),
   };
 }
@@ -125,7 +127,8 @@ test("render clears before drawing tiles", () => {
   state.atlas = "ATLAS";
   game.render(state, makeCtx(trace));
   assert.equal(trace[0][0], "clearRect");
-  assert.equal(drawCalls(trace).length, 84, "tiles drawn after the clear");
+  // 84 board cells plus the player sprite.
+  assert.equal(drawCalls(trace).length, 85, "tiles and player drawn after the clear");
   const firstDraw = trace.findIndex((c) => c[0] === "drawImage");
   assert.ok(firstDraw > 0, "tiles must come after the clear");
 });
@@ -169,4 +172,76 @@ test("boot stores the freeze flag on state", () => {
     location: { search: "?freeze=1" },
   });
   assert.equal(state.freeze, true);
+});
+
+test("renderPlayer draws the facing frame at the player cell", () => {
+  const trace = [];
+  const state = game.createInitialState();
+  state.atlas = "ATLAS";
+  state.player.facing = "left";
+  state.player.step = 0;
+  game.renderPlayer(state, makeCtx(trace));
+  const [, atlas, sx, sy, sw, sh, dx, dy, dw, dh] = trace[0];
+  assert.equal(atlas, "ATLAS");
+  assert.deepEqual([sx, sy, sw, sh], [64, 0, 16, 16], "left-facing frame 1");
+  assert.deepEqual([dx, dy, dw, dh], [6 * 48, 6 * 48, 48, 48]);
+});
+
+test("renderPlayer draws nothing before the atlas decodes", () => {
+  const trace = [];
+  game.renderPlayer(game.createInitialState(), makeCtx(trace));
+  assert.equal(trace.length, 0);
+});
+
+test("the walk frame alternates on each accepted hop", () => {
+  const state = game.createInitialState();
+  state.atlas = "ATLAS";
+  const frameFor = () => {
+    const trace = [];
+    game.renderPlayer(state, makeCtx(trace));
+    return trace[0][2]; // sx
+  };
+  const start = frameFor();
+  game.hop(state, "up");
+  const afterOne = frameFor();
+  game.hop(state, "up");
+  const afterTwo = frameFor();
+  assert.notEqual(afterOne, start, "first hop flips the frame");
+  assert.notEqual(afterTwo, afterOne, "second hop flips it back");
+  assert.equal(afterTwo, start);
+});
+
+test("playerFrame falls back to up for an unknown facing", () => {
+  const frame = game.playerFrame({ facing: "sideways", step: 0 });
+  assert.deepEqual(frame, game.PLAYER_FRAMES.up[0]);
+});
+
+test("renderHud draws the score", () => {
+  const trace = [];
+  const state = game.createInitialState();
+  state.score = 70;
+  game.renderHud(state, makeCtx(trace));
+  const text = trace.find((c) => c[0] === "fillText");
+  assert.ok(text, "HUD must draw text");
+  assert.match(text[1], /70/);
+});
+
+test("render order is tiles, then player, then HUD", () => {
+  const trace = [];
+  const state = game.createInitialState();
+  state.atlas = "ATLAS";
+  game.render(state, makeCtx(trace));
+
+  const kinds = trace.map((c) => c[0]);
+  const firstDraw = kinds.indexOf("drawImage");
+  const lastDraw = kinds.lastIndexOf("drawImage");
+  const hud = kinds.indexOf("fillText");
+
+  assert.equal(kinds[0], "clearRect");
+  assert.ok(firstDraw > 0, "tiles come after the clear");
+  assert.ok(hud > lastDraw, "HUD is drawn after every sprite");
+
+  // The player is the final drawImage, painted over the board.
+  const player = trace[lastDraw];
+  assert.deepEqual([player[6], player[7]], [6 * 48, 6 * 48]);
 });

@@ -15,8 +15,10 @@ function makeCtx(trace = []) {
     trace,
     imageSmoothingEnabled: true,
     fillStyle: null,
+    font: null,
     clearRect: (...args) => trace.push(["clearRect", ...args]),
     fillRect: (...args) => trace.push(["fillRect", ...args]),
+    fillText: (...args) => trace.push(["fillText", ...args]),
   };
 }
 
