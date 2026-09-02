@@ -1,0 +1,13 @@
+{
+  "name": "capybara-crossing",
+  "private": true,
+  "description": "Dev-only Node test harness. The shipped game stays zero-dependency (open index.html; no bundler).",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --experimental-test-coverage --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 --test-coverage-include=game.js '--test-coverage-exclude=tests/**' tests/*.test.mjs",
+    "test:watch": "node --test --watch tests/*.test.mjs",
+    "prepare": "node scripts/install-hooks.mjs"
+  }
+}
