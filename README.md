@@ -1,8 +1,9 @@
 # Capybara Crossing
 
-The first project in a spec-driven development course. You will build a small
-retro arcade game — guide a pixel-art capybara across a jungle road to a mud spa
-— working from a written specification rather than from instructions.
+The second project in a spec-driven development course, after Dock Bot. You will
+build a small retro arcade game in plain JavaScript — guide a pixel-art capybara
+across a jungle road to a mud spa — working from a written specification rather
+than from instructions.
 
 This branch is your starting point. It contains the spec and the artwork. There
 is no code yet; writing it is the exercise.
