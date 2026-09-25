@@ -52,9 +52,15 @@ object rather than mutating the argument.
 The single seam the loop drives is:
 
 ```
-    update(state, dt, input)  ->  state'          pure, no DOM
+    update(state, dt, input)  ->  state'          no DOM; never mutates state
     render(ctx, state)                            draws, returns nothing
 ```
+
+`update` returns a new state and never writes to the one it is given. It does
+drain the input buffer, which is that buffer's entire purpose — the alternative
+is returning a state/input pair and threading it back, which buys nothing. The
+purity that matters here is that world state only ever changes by being
+returned, so `render` cannot alter what it draws.
 
 *Why:* a pure function is testable by calling it and comparing the result, which is
 exactly what `node --test` can do with no browser. It also makes the update/render

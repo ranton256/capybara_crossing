@@ -1,0 +1,23 @@
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #14181d;
+}
+
+#atlas {
+  display: none;
+}
+
+#board {
+  /* Keep the 16x16 artwork hard-edged when the canvas is scaled by the
+     compositor. The drawing context disables smoothing separately. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #14181d;
+}
