@@ -23,6 +23,35 @@ const CANVAS_HEIGHT = ROWS * TILE * SCALE;  // 336
 
 const SPAWN = { col: 6, row: 6, facing: 'up' };
 
+// The closed set of states a round can be in. DYING arrives in M4 and
+// GAME_OVER in M5; the machine is shaped so those are additions.
+const PHASES = { PLAYING: 'playing', SINKING: 'sinking' };
+
+// Fixed Parameters give the spa sink as 400ms. Derived here rather than
+// restated, so the spec's millisecond figure stays the single source.
+const SINK_MS = 400;
+const SINK_SECONDS = SINK_MS / 1000;
+
+// Points, from the gameplay scenarios.
+const POINTS_ADVANCE = 10;
+const POINTS_GOAL = 50;
+
+const GOAL_ROW = 0;
+
+const HUD_COLOR = '#f0e0b0';
+const HUD_FONT = '8px monospace';
+const HUD_MARGIN = 2;
+const STARTING_LIVES = 3;
+
+// Accumulating dt in floating point leaves the running sum a few ulps short of
+// an exact duration, and the shortfall depends on the step size: 24 steps of
+// 1/60s reach 0.39999999999999997 while 48 steps of 1/120s reach
+// 0.40000000000000041. Comparing a phase duration exactly would therefore end
+// the beat a whole frame later at 60Hz than at 120Hz, which is precisely the
+// refresh-rate dependence the spec forbids. A nanosecond of tolerance sits far
+// below any real frame and removes the difference.
+const TIME_EPSILON = 1e-9;
+
 // Longest step the world may take in one frame. A backgrounded tab returns with
 // a multi-second timestamp gap; without this the world lurches. See
 // DECISIONS.md gap 6.
@@ -95,6 +124,12 @@ function createState() {
   return {
     player: { col: SPAWN.col, row: SPAWN.row, facing: SPAWN.facing },
     elapsed: 0,
+    phase: PHASES.PLAYING,
+    phaseElapsed: 0,
+    score: 0,
+    lives: STARTING_LIVES,
+    // Northmost row reached this life. Resets to the spawn row each round.
+    northmost: SPAWN.row,
   };
 }
 
@@ -115,6 +150,28 @@ function takeDirection(input) {
   const direction = input.pending;
   input.pending = null;
   return direction;
+}
+
+// Every transition resets the per-phase accumulator, including a transition to
+// the phase already current. A per-phase counter rather than an absolute deadline
+// keeps phase timing independent of the world clock. See design.md.
+function enterPhase(state, phase) {
+  return Object.assign({}, state, { phase: phase, phaseElapsed: 0 });
+}
+
+// Knows nothing about the goal. The spa bonus composes on top of this, so the
+// final step north scores both awards without a special case. See design.md.
+function scoreMove(northmost, row) {
+  if (row < northmost) return { points: POINTS_ADVANCE, northmost: row };
+  return { points: 0, northmost: northmost };
+}
+
+// Back to the spawn cell with a fresh watermark. Score and lives carry across.
+function respawn(state) {
+  return Object.assign({}, state, {
+    player: { col: SPAWN.col, row: SPAWN.row, facing: SPAWN.facing },
+    northmost: SPAWN.row,
+  });
 }
 
 // Returns new state; never mutates the state passed in. Facing updates even when
@@ -141,14 +198,66 @@ function frameDelta(timestamp, previousTimestamp) {
   return Math.min(seconds, MAX_DELTA_SECONDS);
 }
 
-// The seam. Consumes at most one buffered direction and advances the clock.
+// Applies a move that has already been resolved: awards the watermark advance,
+// and if it landed on the goal row, the spa bonus and the sink transition.
+function resolveMove(state, direction) {
+  const moved = movePlayer(state, direction);
+  const award = scoreMove(state.northmost, moved.player.row);
+
+  let next = Object.assign({}, moved, {
+    score: state.score + award.points,
+    northmost: award.northmost,
+  });
+
+  if (moved.player.row === GOAL_ROW) {
+    next = Object.assign({}, next, { score: next.score + POINTS_GOAL });
+    next = enterPhase(next, PHASES.SINKING);
+  }
+  return next;
+}
+
+// Which phases apply directional input to the player.
+function phaseAcceptsInput(phase) {
+  return phase === PHASES.PLAYING;
+}
+
+// Resolves an expired phase. Runs before input is consumed so the frame a beat
+// ends is still a frame the player can act in. See design.md.
+function resolvePhase(state) {
+  if (state.phase === PHASES.SINKING &&
+      state.phaseElapsed >= SINK_SECONDS - TIME_EPSILON) {
+    return enterPhase(respawn(state), PHASES.PLAYING);
+  }
+  return state;
+}
+
+// The seam. Advances both clocks, resolves an expired phase, then consumes at
+// most one buffered direction if the resulting phase accepts input.
 // Pure with respect to state; draining the input buffer is the buffer's purpose.
 function update(state, deltaSeconds, input) {
-  const next = Object.assign({}, state, {
+  let next = Object.assign({}, state, {
     elapsed: state.elapsed + deltaSeconds,
+    phaseElapsed: state.phaseElapsed + deltaSeconds,
   });
+
+  next = resolvePhase(next);
+
+  if (!phaseAcceptsInput(next.phase)) {
+    // Drain and throw away. Merely declining to drain is not the same thing:
+    // the slot holds the most recent press, so a direction mashed mid-beat
+    // would survive and fire on the first playing frame after respawn.
+    takeDirection(input);
+    return next;
+  }
+
   const direction = takeDirection(input);
-  return direction ? movePlayer(next, direction) : next;
+  return direction ? resolveMove(next, direction) : next;
+}
+
+// How far through the sink beat, 0 to 1, clamped at both ends.
+function sinkProgress(state) {
+  if (state.phase !== PHASES.SINKING) return 0;
+  return clamp(state.phaseElapsed / SINK_SECONDS, 0, 1);
 }
 
 function playerSprite(state) {
@@ -189,15 +298,44 @@ function drawBoard(ctx, atlas) {
   }
 }
 
+// While sinking, the sprite's top edge descends toward a fixed lower line and
+// everything below it is clipped away, so it reads as going under rather than
+// vanishing. DECISIONS.md gap 7. Destination offset and drawn height always sum
+// to a full tile, which is what keeps the bottom line fixed.
 function drawPlayer(ctx, atlas, state) {
-  drawSprite(ctx, atlas, playerSprite(state), state.player.col, state.player.row);
+  const sprite = SPRITES[playerSprite(state)];
+  const progress = sinkProgress(state);
+  const visible = TILE * (1 - progress);
+  if (visible <= 0) return;
+
+  ctx.drawImage(
+    atlas,
+    sprite.x, sprite.y, sprite.w, visible,
+    state.player.col * TILE, state.player.row * TILE + TILE * progress,
+    sprite.w, visible);
 }
 
-// Painter's order: clear, background, entities. The HUD layer arrives in M2.
+// Score left, lives right, over row 0. DECISIONS.md gaps 4 and 8. Drawn inside
+// the scaled context so it shares the board's coordinate space. Both values are
+// read from state; the renderer tracks nothing of its own.
+function drawHud(ctx, state) {
+  ctx.fillStyle = HUD_COLOR;
+  ctx.font = HUD_FONT;
+  ctx.textBaseline = 'middle';
+
+  ctx.textAlign = 'left';
+  ctx.fillText('SCORE ' + state.score, HUD_MARGIN, TILE / 2);
+
+  ctx.textAlign = 'right';
+  ctx.fillText('LIVES ' + state.lives, COLS * TILE - HUD_MARGIN, TILE / 2);
+}
+
+// Painter's order: clear, background, entities, display.
 function render(ctx, atlas, state) {
   ctx.clearRect(0, 0, COLS * TILE, ROWS * TILE);
   drawBoard(ctx, atlas);
   drawPlayer(ctx, atlas, state);
+  drawHud(ctx, state);
 }
 
 function drawLoadFailure(ctx) {
@@ -276,10 +414,16 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     COLS, ROWS, TILE, SCALE, CANVAS_WIDTH, CANVAS_HEIGHT,
     SPAWN, MAX_DELTA_SECONDS, ROW_ROLES, ROLE_TILES, ROW_TILES, SPRITES,
+    PHASES, SINK_MS, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL,
+    GOAL_ROW, STARTING_LIVES, TIME_EPSILON,
     DIRECTIONS, KEY_DIRECTIONS,
     clamp, createState, createInput, pressKey, takeDirection,
     movePlayer, frameDelta, update, playerSprite, tick,
-    setupContext, drawSprite, drawBoard, drawPlayer, render, drawLoadFailure,
+    enterPhase, scoreMove, respawn, resolveMove, resolvePhase,
+    phaseAcceptsInput, sinkProgress,
+    HUD_COLOR, HUD_FONT, HUD_MARGIN,
+    setupContext, drawSprite, drawBoard, drawPlayer, drawHud, render,
+    drawLoadFailure,
     boot,
   };
 }

@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { boot, TILE, SPRITES } = require('./game.js');
+const { boot, TILE, SPRITES, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL } = require('./game.js');
 
 /* --- a hand-rolled DOM, no dependencies --------------------------------- */
 
@@ -194,6 +194,81 @@ test('only the most recent press survives to the next frame', () => {
   const player = draws[draws.length - 1];
   assert.equal(player.sx, SPRITES.capy_left_1.x, 'the latest press won');
   assert.equal(playerRow(env), 6, 'and the earlier ArrowUp was discarded');
+});
+
+/* --- a whole round through the real loop --------------------------------- */
+
+// The stub's rAF hands back timestamps, so the loop's own frameDelta drives the
+// beat. This exercises the round through boot rather than through update alone.
+test('a full round can be played through the boot loop', () => {
+  const env = loaded();
+  boot(env.doc, env.win);
+
+  let now = 0;
+  const step = () => { now += 1000 / 60; runFrame(env, now); };
+  const drawnText = () => env.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+
+  step();
+  assert.equal(playerRow(env), 6, 'starts on the spawn row');
+  assert.ok(drawnText().some((t) => /SCORE 0/.test(t)), 'score starts at zero');
+  assert.ok(drawnText().some((t) => /LIVES 3/.test(t)), 'three lives');
+
+  // Walk north to the goal, one press per frame.
+  for (let i = 0; i < 6; i++) {
+    press(env, 'ArrowUp');
+    step();
+  }
+  const atGoal = drawnText().filter((t) => /SCORE/.test(t)).pop();
+  assert.match(atGoal, new RegExp('SCORE ' + (6 * POINTS_ADVANCE + POINTS_GOAL)),
+    'six advances plus the goal bonus');
+
+  // Run the beat out. The player should disappear as it completes.
+  const before = env.calls.filter((c) => c.op === 'drawImage').length;
+  for (let t = 0; t < SINK_SECONDS + 1 / 60; t += 1 / 60) step();
+
+  // After respawn the player is drawn again, back at the spawn row.
+  step();
+  assert.equal(playerRow(env), 6, 'respawned at the spawn row');
+  const afterRound = drawnText().filter((t) => /SCORE/.test(t)).pop();
+  assert.match(afterRound, new RegExp('SCORE ' + (6 * POINTS_ADVANCE + POINTS_GOAL)),
+    'the score persisted across the round');
+  assert.ok(env.calls.filter((c) => c.op === 'drawImage').length > before);
+
+  // The same row scores again, so the watermark reset.
+  press(env, 'ArrowUp');
+  step();
+  const nextRound = drawnText().filter((t) => /SCORE/.test(t)).pop();
+  assert.match(nextRound, new RegExp('SCORE ' + (7 * POINTS_ADVANCE + POINTS_GOAL)),
+    'the watermark reset, so row 5 scored again');
+});
+
+test('the sinking sprite shrinks monotonically through the real loop', () => {
+  const env = loaded();
+  boot(env.doc, env.win);
+  let now = 0;
+  const step = () => { now += 1000 / 60; runFrame(env, now); };
+
+  step();
+  for (let i = 0; i < 6; i++) { press(env, 'ArrowUp'); step(); }
+
+  // Sample the player's drawn height on each frame of the beat. Note the loop
+  // never renders progress 1: expiry resolves before render, so the frame that
+  // would reach it is the frame that respawns. drawPlayer's contract at
+  // completion is covered as a unit in rendering.test.js.
+  const heights = [];
+  const frames = Math.round(SINK_SECONDS / (1 / 60));
+  for (let i = 0; i < frames - 1; i++) {
+    const mark = env.calls.length;
+    step();
+    const sprites = env.calls.slice(mark).filter((c) => c.op === 'drawImage');
+    heights.push(sprites[sprites.length - 1].dh);
+  }
+
+  assert.ok(heights.length > 10, 'sampled a real beat');
+  for (let i = 1; i < heights.length; i++) {
+    assert.ok(heights[i] < heights[i - 1], `frame ${i} drew less than frame ${i - 1}`);
+  }
+  assert.ok(heights[heights.length - 1] < 1, 'nearly submerged by the last frame');
 });
 
 /* --- the export guard, evaluated as a browser would ---------------------- */

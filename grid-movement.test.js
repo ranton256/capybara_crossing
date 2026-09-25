@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  COLS, ROWS, SPAWN,
+  COLS, ROWS, SPAWN, GOAL_ROW, PHASES,
   createState, createInput, pressKey, movePlayer, update,
 } = require('./game.js');
 
@@ -112,6 +112,59 @@ test('movePlayer ignores an unrecognised direction', () => {
   const start = createState();
   assert.equal(movePlayer(start, 'sideways'), start);
   assert.equal(movePlayer(start, undefined), start);
+});
+
+/* --- changed by win-loop: the top edge is a goal, not a clamp ------------ */
+
+test('the top-edge clamp still holds as a guard', () => {
+  // Unreachable while playing, since entering row 0 begins the sink. The clamp
+  // remains so no position can leave the board if a later change makes row 0
+  // occupiable again.
+  const after = movePlayer(at_(6, 0), 'up');
+  assert.deepEqual(pos(after), [6, 0]);
+});
+
+test('moving up from row 1 is not clamped', () => {
+  const input = createInput();
+  const state = at_(6, 1);
+  pressKey(input, 'ArrowUp');
+  const after = update(state, 1 / 60, input);
+  assert.equal(after.player.row, GOAL_ROW, 'the player reached row 0');
+  assert.notEqual(after.player.row, 1, 'it was not clamped back');
+});
+
+test('pressing outward at the right edge', () => {
+  const after = movePlayer(at_(COLS - 1, 3), 'right');
+  assert.deepEqual(pos(after), [COLS - 1, 3]);
+  assert.equal(after.player.facing, 'right');
+});
+
+test('the player never occupies a coordinate outside the board', () => {
+  const input = createInput();
+  let state = createState();
+  const keys = ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
+  for (let i = 0; i < 200; i++) {
+    pressKey(input, keys[(i * 7) % 4]);
+    state = update(state, 1 / 60, input);
+    assert.ok(state.player.col >= 0 && state.player.col < COLS, `col in range at ${i}`);
+    assert.ok(state.player.row >= 0 && state.player.row < ROWS, `row in range at ${i}`);
+  }
+});
+
+test('movement does not apply while the game is not accepting input', () => {
+  const input = createInput();
+  let state = Object.assign(createState(), {
+    phase: PHASES.SINKING,
+    phaseElapsed: 0,
+    player: { col: 6, row: 0, facing: 'up' },
+  });
+  const frozen = Object.assign({}, state.player);
+
+  for (const key of ['ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+    pressKey(input, key);
+    state = update(state, 1 / 60, input);
+    assert.deepEqual(state.player, frozen, `${key} did not move the player`);
+  }
 });
 
 function pos(state) {

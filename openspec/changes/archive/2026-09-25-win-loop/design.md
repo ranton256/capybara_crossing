@@ -78,11 +78,13 @@ be a frame in which the player can act. Resolving expiry after input would cost 
 frame of responsiveness at every transition, and would mean a press arriving on the
 expiry frame is discarded by a phase that has already ended.
 
-*Why the buffer is drained only when the phase accepts input:* this is the
-mechanism M1 was built for. `SINKING` never calls `takeDirection`, so nothing
-accumulates and nothing fires late. The alternative — draining always and
-discarding the result — would also work, but it puts the suppression decision in
-the wrong place and makes "did this state ignore input" untestable from outside.
+*Why a non-accepting phase drains the buffer and throws the result away:*
+declining to drain is **not** sufficient, and the first implementation got this
+wrong. The buffer holds the most recent press, so a direction mashed during the
+beat survives in the slot and fires on the first playing frame after respawn —
+exactly the late input the single-slot design was meant to prevent. Suppression
+therefore has to be active: the phase drains and discards, so the slot is empty
+when play resumes.
 
 **Consequence for the spec:** `game-lifecycle` states that a press made during a
 beat is *discarded*, not deferred. That is a deliberate behaviour, not a
@@ -100,6 +102,28 @@ per round, the other is a one-off per arrival — and entangling them is how the
 end up disagreeing about the final step. Keeping the watermark rule ignorant of the
 goal means the last step north scores 10 for the advance *and* 50 for the goal, by
 composition rather than by a special case.
+
+### Phase durations compare with a nanosecond of tolerance
+
+Accumulating `dt` in floating point leaves the running sum a few ulps short of an
+exact duration, and by a different amount depending on the step size: 24 steps of
+1/60s reach 0.39999999999999997, while 48 steps of 1/120s reach
+0.40000000000000041. An exact `>= SINK_SECONDS` comparison therefore ends the
+beat on frame 48 at 120Hz but not until frame 25 at 60Hz — a beat 4% longer at
+the lower refresh rate, which is exactly the dependence `game-lifecycle`
+forbids.
+
+Phase expiry compares against `SINK_SECONDS - TIME_EPSILON`, with
+`TIME_EPSILON` at 1e-9.
+
+*Why 1e-9:* it is nine orders of magnitude below a 60Hz frame, so it can never
+absorb a real frame, and it is far above the accumulated float error over any
+plausible phase length. `phaseElapsed` resets on every transition, so the error
+never compounds across phases.
+
+*This was found by the spec, not by inspection.* The first implementation
+compared exactly and passed every test except "The beat is the same length at any
+refresh rate", which is the scenario that exists to catch precisely this.
 
 ### The sink is drawn from a computed source rectangle
 
@@ -156,6 +180,15 @@ now would be guessing.
 **Fractional destination coordinates during the sink** → Confined to one sprite in
 one state, and no tile or resting sprite is affected. Called out here so it is not
 mistaken for a regression against M1's integral-scale requirement.
+
+**The loop never renders the sink at full progress** → Expiry resolves before
+render, so the frame that would draw progress 1 is the frame that respawns. The
+capybara therefore shrinks to a sliver and reappears at the spawn cell rather
+than disappearing for a frame first. `drawPlayer` still draws nothing at
+progress 1 and is unit-tested at that point; the rendering spec's "Nothing is
+drawn once the beat completes" is a contract on the draw function, not a claim
+about the frame sequence. Called out so the unit test is not later mistaken for
+one asserting an unreachable state.
 
 **The lives counter is inert until M4** → It is real state read by the HUD, so the
 display path is exercised from this change onward rather than being written blind

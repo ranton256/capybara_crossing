@@ -8,6 +8,7 @@ const path = require('node:path');
 const {
   COLS, ROWS, TILE, SCALE, SPRITES, ROW_TILES, ROW_ROLES, ROLE_TILES,
   createState, movePlayer, setupContext, drawBoard, drawPlayer, render, playerSprite,
+  drawHud, sinkProgress, PHASES, SINK_SECONDS,
 } = require('./game.js');
 
 const ATLAS = { __stub: 'atlas image' };
@@ -19,6 +20,8 @@ function stubContext() {
     calls,
     setTransform(...args) { calls.push({ op: 'setTransform', args }); },
     clearRect(...args) { calls.push({ op: 'clearRect', args }); },
+    fillRect(...args) { calls.push({ op: 'fillRect', args }); },
+    fillText(...args) { calls.push({ op: 'fillText', args }); },
     drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh) {
       calls.push({ op: 'drawImage', image, sx, sy, sw, sh, dx, dy, dw, dh });
     },
@@ -183,7 +186,7 @@ test('render clears the full canvas before drawing anything', () => {
   assert.ok(!ctx.calls.slice(1).some((c) => c.op === 'clearRect'), 'cleared exactly once');
 });
 
-test('render draws background, then the player, in painters order', () => {
+test('render draws background, then the player, then the display', () => {
   const ctx = stubContext();
   render(ctx, ATLAS, createState());
   const draws = ctx.calls.filter((c) => c.op === 'drawImage');
@@ -194,11 +197,130 @@ test('render draws background, then the player, in painters order', () => {
   for (const call of board) {
     assert.ok(spriteAt(call).startsWith('tile_'), 'the background is drawn first');
   }
-  assert.equal(spriteAt(player), 'capy_up_1', 'the player is drawn last');
+  assert.equal(spriteAt(player), 'capy_up_1', 'the player is drawn over the board');
+
+  const firstText = ctx.calls.findIndex((c) => c.op === 'fillText');
+  const lastImage = ctx.calls.map((c) => c.op).lastIndexOf('drawImage');
+  assert.ok(firstText > lastImage, 'no sprite is drawn after the display');
+});
+
+/* --- the heads-up display ------------------------------------------------ */
+
+test('the display shows score at the left and lives at the right', () => {
+  const ctx = stubContext();
+  const state = Object.assign(createState(), { score: 120, lives: 3 });
+  drawHud(ctx, state);
+
+  const text = ctx.calls.filter((c) => c.op === 'fillText');
+  assert.equal(text.length, 2);
+  assert.match(text[0].args[0], /SCORE 120/);
+  assert.match(text[1].args[0], /LIVES 3/);
+  assert.ok(text[0].args[1] < COLS * TILE / 2, 'score sits at the left');
+  assert.ok(text[1].args[1] > COLS * TILE / 2, 'lives sit at the right');
+});
+
+test('the display sits over row 0', () => {
+  const ctx = stubContext();
+  drawHud(ctx, createState());
+  for (const call of ctx.calls.filter((c) => c.op === 'fillText')) {
+    assert.ok(call.args[2] >= 0 && call.args[2] <= TILE, 'drawn within the top row');
+  }
+});
+
+test('the display reads lives from state rather than assuming three', () => {
+  // Lives cannot change through play until M4, so a HUD that hardcoded 3 would
+  // be indistinguishable in this milestone. Drive it from constructed state so
+  // the readout is proven to follow, before M4 depends on it.
+  const ctx = stubContext();
+  drawHud(ctx, Object.assign(createState(), { lives: 1 }));
+  const text = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+  assert.ok(text.some((t) => /LIVES 1/.test(t)), 'drew the state value');
+  assert.ok(!text.some((t) => /LIVES 3/.test(t)), 'did not draw a hardcoded 3');
+});
+
+test('the display follows a change in score', () => {
+  const first = stubContext();
+  drawHud(first, Object.assign(createState(), { score: 10 }));
+  const second = stubContext();
+  drawHud(second, Object.assign(createState(), { score: 70 }));
+
+  assert.match(first.calls.find((c) => c.op === 'fillText').args[0], /SCORE 10/);
+  assert.match(second.calls.find((c) => c.op === 'fillText').args[0], /SCORE 70/);
+});
+
+/* --- the sinking capybara ------------------------------------------------ */
+
+function sinking(progress) {
+  const state = createState();
+  return Object.assign({}, state, {
+    phase: PHASES.SINKING,
+    phaseElapsed: SINK_SECONDS * progress,
+    player: { col: 6, row: 0, facing: 'up' },
+  });
+}
+
+test('sink progress is clamped at both ends', () => {
+  // The running loop never exceeds ~0.96 because the phase ends first, so the
+  // upper clamp is defensive. Exercise it directly rather than leave it unproven.
+  const over = Object.assign(createState(), {
+    phase: PHASES.SINKING, phaseElapsed: SINK_SECONDS * 3,
+  });
+  assert.equal(sinkProgress(over), 1, 'clamped above');
+
+  const under = Object.assign(createState(), { phase: PHASES.SINKING, phaseElapsed: 0 });
+  assert.equal(sinkProgress(under), 0, 'clamped below');
+  assert.equal(sinkProgress(createState()), 0, 'zero while not sinking');
+
+  const ctx = stubContext();
+  drawPlayer(ctx, ATLAS, over);
+  assert.equal(ctx.calls.length, 0, 'nothing drawn past the end of the beat');
+});
+
+test('the whole sprite is visible as the beat begins', () => {
+  const ctx = stubContext();
+  drawPlayer(ctx, ATLAS, sinking(0));
+  const call = ctx.calls[0];
+  assert.equal(call.sh, TILE, 'full source height');
+  assert.equal(call.dy, 0, 'no offset yet');
+});
+
+test('the sprite is progressively hidden as the beat runs', () => {
+  const early = stubContext();
+  drawPlayer(early, ATLAS, sinking(0.25));
+  const late = stubContext();
+  drawPlayer(late, ATLAS, sinking(0.75));
+
+  assert.ok(late.calls[0].sh < early.calls[0].sh, 'less of it is drawn later');
+  assert.ok(late.calls[0].dy > early.calls[0].dy, 'and it sits farther down');
+});
+
+test('the bottom edge stays fixed across the whole beat', () => {
+  const row = 0;
+  for (const p of [0, 0.1, 0.25, 0.5, 0.75, 0.9]) {
+    const ctx = stubContext();
+    drawPlayer(ctx, ATLAS, sinking(p));
+    const call = ctx.calls[0];
+    assert.ok(Math.abs((call.dy + call.dh) - (row * TILE + TILE)) < 1e-9,
+      `bottom line fixed at progress ${p}`);
+  }
+});
+
+test('nothing is drawn once the beat completes', () => {
+  const ctx = stubContext();
+  drawPlayer(ctx, ATLAS, sinking(1));
+  assert.equal(ctx.calls.length, 0, 'the sprite is gone');
+});
+
+test('the player draws normally while not sinking', () => {
+  const ctx = stubContext();
+  drawPlayer(ctx, ATLAS, createState());
+  const call = ctx.calls[0];
+  assert.equal(call.sh, TILE, 'full height');
+  assert.equal(call.dy, 6 * TILE, 'no vertical offset');
 });
 
 test('render does not mutate the state it is given', () => {
-  const state = createState();
+  const state = Object.assign(createState(), { score: 60, lives: 3 });
   const snapshot = JSON.stringify(state);
   render(stubContext(), ATLAS, state);
   assert.equal(JSON.stringify(state), snapshot);
