@@ -96,6 +96,8 @@ most expensive available mistake on this project.
 | 4 | Where the HUD goes | Silence | Overlay row 0, the spa row | M2 |
 | 5 | Riverbank grass band repeats | Art conflict | Accept the repeat | M1 |
 | 6 | Unbounded delta time | Silence | Clamp to 0.1s | M1 |
+| 7 | No sink art for the 400ms beat | Art gap | Descend into the tile | M2 |
+| 8 | HUD appearance | Silence | Pixel text, score left, lives right | M2 |
 
 ---
 
@@ -246,6 +248,67 @@ update function.
 it is not mistaken for something the spec asked for. 0.1s is roughly six frames
 at 60Hz: long enough never to affect normal play, short enough to bound the
 worst case.
+
+---
+
+### 7. The spa sink has no art
+
+**What the spec says.** Fixed Parameters give `spa sink 400ms`, and the goal
+scenario says the capybara "happily sinks into the mud". The atlas ships eight
+walk frames and `capy_defeat`; there is no sink frame and no partial-submersion
+frame.
+
+**Why it matters.** The beat is 400ms of visible screen time with nothing drawn
+for it. Either it is animated procedurally or it is a pause pretending to be an
+animation.
+
+**Decision.** Descend into the tile. Over the 400ms the sprite's top edge travels
+downward toward a fixed mud line while its lower part is clipped away, so it
+reads as going under the surface.
+
+```
+t=0.0        t=0.4         t=0.8        t=1.0
++------+    +------+     +------+    +------+
+| .--. |    |      |     |      |    |      |
+|(o  o)|    | .--. |     |      |    |      |
+| capy |    |(o  o)|     | .--. |    |      |
+|______|    |______|     |(____)|    |______|
+ mud line    mud line     mud line    mud line
+```
+
+Concretely: source `y` stays fixed, source height shrinks, destination `y` grows
+by the same amount. No new art, no new atlas rectangle.
+
+**Rationale.** It is the literal reading of the spec and the only option that
+represents "sinks" rather than "vanishes". Shrinking toward the tile centre was
+considered and reads as disappearing, not submerging. Holding the pose for 400ms
+was rejected because it makes a Fixed Parameter into dead time.
+
+---
+
+### 8. The HUD's appearance is unspecified
+
+**What the spec says.** The render pipeline requires HUD text "rendered on top of
+all game elements". Nothing describes what it contains or how it looks. Gap 4
+placed it over row 0; this settles what is drawn there.
+
+**Decision.** Monospace pixel text in the palette's cream, score at the left and
+lives at the right.
+
+```
++------------------------------------------+
+| SCORE 120                     LIVES 3    |  row 0, over spa
++------------------------------------------+
+```
+
+**Rationale.** `ctx.fillText` needs no new sprites and no atlas changes. Drawing
+lives as small capybara heads was considered and rejected: it would scale a 16x16
+walk frame down to a size it was not drawn for, which muddies at this palette's
+contrast.
+
+**Note for M2.** Lives cannot change until M4 introduces death, so M2 draws a
+static `3`. That is intentional, not a stub — the counter is real state read from
+the game, it simply has nothing to decrement it yet.
 
 ---
 
