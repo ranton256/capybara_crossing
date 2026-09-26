@@ -104,6 +104,8 @@ most expensive available mistake on this project.
 | 12 | Does traffic move while not playing | Silence | Yes, motion is phase-independent | M3 |
 | 13 | Where M4 stops at zero lives | Scope | M4 adds the GAME_OVER state; M5 adds its screen | M4 |
 | 14 | What the 100ms blink looks like | Silence | Fast strobe, four 25ms toggles | M4 |
+| 15 | Which frame a halted game draws | Silence | The defeat pose is held | M4 |
+| 16 | Does a fatal step still score | Silence | Yes, the row was reached | M4 |
 
 ---
 
@@ -474,6 +476,49 @@ defeats the purpose of having a flash parameter at all.
 **Note.** Both the 25ms toggle period and the 100ms window are measured from the
 same accumulated phase clock the sink beat uses, so the flash is refresh-rate
 independent for the same reason the beat is.
+
+---
+
+### 15. Which frame a halted game draws
+
+**What the spec says.** Nothing. The question only exists because gap 13 put
+`GAME_OVER` in M4 and its screen in M5, so there is a milestone in which the game
+is over and nothing is written over the board.
+
+**Why it matters.** The first implementation drew the defeat pose only while
+dying, so `GAME_OVER` fell through to a walk frame: the capybara stood up looking
+unharmed, indefinitely, at the tile where it had just been run over. It read as a
+freeze rather than as a defeat.
+
+**Decision.** The defeat pose is held once the game is over, at the tile where
+the final collision occurred.
+
+**Rationale.** It reads as "you died" with no text at all, which means M5's
+game-over screen lands on a coherent scene rather than having to explain one.
+Drawing no capybara was considered and rejected: the player vanishing without
+explanation is a different kind of confusing.
+
+---
+
+### 16. Whether a step that kills still scores
+
+**What the spec says.** The advance award is described as 10 points for a row
+farther north than any reached during the current life. Nothing says whether the
+row has to be survived.
+
+**Why it matters.** Stepping into a truck awards the 10 points and then kills, so
+the score ticks up as the player dies. It is visible, and it was accidental
+rather than chosen — nothing recorded it and no test would have noticed it
+flipping.
+
+**Decision.** The award stands. The row was reached; surviving it is not a
+condition.
+
+**Rationale.** It is the scoring requirement read literally, and it keeps the
+watermark rule free of any knowledge of collision — the same separation that
+keeps the goal bonus composing rather than special-cased (see the M2 design).
+Suppressing the award would put a collision test inside the scoring path for a
+10-point edge case.
 
 ---
 

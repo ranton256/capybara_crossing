@@ -25,12 +25,27 @@ const SPAWN = { col: 6, row: 6, facing: 'up' };
 
 // The closed set of states a round can be in. DYING arrives in M4 and
 // GAME_OVER in M5; the machine is shaped so those are additions.
-const PHASES = { PLAYING: 'playing', SINKING: 'sinking' };
+const PHASES = {
+  PLAYING: 'playing',
+  SINKING: 'sinking',
+  DYING: 'dying',
+  GAME_OVER: 'gameover',
+};
 
 // Fixed Parameters give the spa sink as 400ms. Derived here rather than
 // restated, so the spec's millisecond figure stays the single source.
 const SINK_MS = 400;
 const SINK_SECONDS = SINK_MS / 1000;
+
+const DEATH_MS = 550;
+const DEATH_SECONDS = DEATH_MS / 1000;
+
+// The flash occupies the first 100ms of the death beat, alternating every 25ms.
+// DECISIONS.md gaps 2 and 14.
+const FLASH_MS = 100;
+const FLASH_SECONDS = FLASH_MS / 1000;
+const FLASH_TOGGLE_MS = 25;
+const FLASH_TOGGLE_SECONDS = FLASH_TOGGLE_MS / 1000;
 
 // Points, from the gameplay scenarios.
 const POINTS_ADVANCE = 10;
@@ -92,6 +107,7 @@ const SPRITES = {
   capy_left_2:  { x:  80, y:  0, w: 16, h: 16 },
   capy_right_1: { x:  96, y:  0, w: 16, h: 16 },
   capy_right_2: { x: 112, y:  0, w: 16, h: 16 },
+  capy_defeat:  { x:   0, y: 16, w: 16, h: 16 },
   truck:        { x:  32, y: 48, w: 32, h: 16 },
   atv_red:      { x:   0, y: 48, w: 16, h: 16 },
   atv_blue:     { x:  16, y: 48, w: 16, h: 16 },
@@ -162,6 +178,32 @@ function takeDirection(input) {
   const direction = input.pending;
   input.pending = null;
   return direction;
+}
+
+// Half-open intervals: [start, end). A player at column 6 spans [6, 7), so a
+// hazard whose box ends exactly at 6 does not touch it. Closed intervals would
+// make an adjacent, non-overlapping vehicle lethal.
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function playerBox(player) {
+  return { row: player.row, start: player.col, end: player.col + 1 };
+}
+
+function hazardBox(hazard) {
+  return { row: hazard.row, start: hazard.x, end: hazard.x + hazard.width };
+}
+
+function hits(player, hazard) {
+  const a = playerBox(player);
+  const b = hazardBox(hazard);
+  return a.row === b.row && overlaps(a.start, a.end, b.start, b.end);
+}
+
+// Whether any hazard strikes the player. One event however many overlap.
+function hitBy(state) {
+  return state.hazards.some(function (h) { return hits(state.player, h); });
 }
 
 // A hazard travels the board plus its own width between successive wraps. Every
@@ -276,11 +318,30 @@ function phaseAcceptsInput(phase) {
   return phase === PHASES.PLAYING;
 }
 
+// The life is spent at the moment of impact, not at beat expiry, so the HUD
+// shows the cost at the same instant as the flash. It also makes the routing
+// decision at expiry a plain read rather than a subtract-then-test.
+// The player is left where it was struck; DECISIONS.md gap 1.
+function strikePlayer(state) {
+  return enterPhase(
+    Object.assign({}, state, { lives: Math.max(0, state.lives - 1) }),
+    PHASES.DYING);
+}
+
 // Resolves an expired phase. Runs before input is consumed so the frame a beat
 // ends is still a frame the player can act in. See design.md.
+//
+// SINKING and DYING stay separate branches rather than sharing a helper: they
+// have three lines in common and five differences, so the abstraction would be
+// longer than what it replaces. See design.md.
 function resolvePhase(state) {
   if (state.phase === PHASES.SINKING &&
       state.phaseElapsed >= SINK_SECONDS - TIME_EPSILON) {
+    return enterPhase(respawn(state), PHASES.PLAYING);
+  }
+  if (state.phase === PHASES.DYING &&
+      state.phaseElapsed >= DEATH_SECONDS - TIME_EPSILON) {
+    if (state.lives <= 0) return enterPhase(state, PHASES.GAME_OVER);
     return enterPhase(respawn(state), PHASES.PLAYING);
   }
   return state;
@@ -309,7 +370,16 @@ function update(state, deltaSeconds, input) {
   }
 
   const direction = takeDirection(input);
-  return direction ? resolveMove(next, direction) : next;
+  if (direction) next = resolveMove(next, direction);
+
+  // Evaluated once, after hazards have advanced and after any move has been
+  // applied, so stepping into a truck and a truck driving into you are the same
+  // event. Placed after the early return above, so DYING, SINKING and GAME_OVER
+  // are immune without any of them naming collision -- which is what makes
+  // "one death costs one life" structural rather than a flag.
+  if (next.phase === PHASES.PLAYING && hitBy(next)) return strikePlayer(next);
+
+  return next;
 }
 
 // How far through the sink beat, 0 to 1, clamped at both ends.
@@ -319,7 +389,28 @@ function sinkProgress(state) {
 }
 
 function playerSprite(state) {
+  // The halted game keeps the defeat pose rather than standing back up, so the
+  // scene M5's game-over screen lands on reads as a defeat. DECISIONS.md gap 15.
+  if (state.phase === PHASES.DYING || state.phase === PHASES.GAME_OVER) {
+    return 'capy_defeat';
+  }
   return 'capy_' + state.player.facing + '_1';
+}
+
+// Whether the player is hidden this frame by the hit flash. Derived from the
+// accumulated phase clock rather than a frame counter, which would strobe twice
+// as fast at 120Hz. DECISIONS.md gap 14.
+function flashHidden(state) {
+  if (state.phase !== PHASES.DYING) return false;
+  // Same tolerance as a phase transition, and for the same reason: accumulated
+  // deltas straddle an exact boundary differently depending on step size. Three
+  // frames of 1/60 reach 0.050000000000000003 while six of 1/120 reach
+  // 0.049999999999999996, which lands them in different toggle bands at the
+  // same instant unless the comparison allows for it.
+  if (state.phaseElapsed >= FLASH_SECONDS - TIME_EPSILON) return false;
+  const band = Math.floor(
+    (state.phaseElapsed + TIME_EPSILON) / FLASH_TOGGLE_SECONDS);
+  return band % 2 === 1;
 }
 
 // One tick: update first, then draw the state that update produced. Extracted
@@ -392,6 +483,8 @@ function drawHazards(ctx, atlas, state) {
 // vanishing. DECISIONS.md gap 7. Destination offset and drawn height always sum
 // to a full tile, which is what keeps the bottom line fixed.
 function drawPlayer(ctx, atlas, state) {
+  if (flashHidden(state)) return;
+
   const sprite = SPRITES[playerSprite(state)];
   const progress = sinkProgress(state);
   const visible = TILE * (1 - progress);
@@ -506,15 +599,18 @@ if (typeof module !== 'undefined' && module.exports) {
     SPAWN, MAX_DELTA_SECONDS, ROW_ROLES, ROLE_TILES, ROW_TILES, SPRITES,
     PHASES, SINK_MS, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL,
     GOAL_ROW, STARTING_LIVES, TIME_EPSILON, LANES,
+    DEATH_MS, DEATH_SECONDS, FLASH_MS, FLASH_SECONDS,
+    FLASH_TOGGLE_MS, FLASH_TOGGLE_SECONDS,
     DIRECTIONS, KEY_DIRECTIONS,
     clamp, createState, createInput, pressKey, takeDirection,
     movePlayer, frameDelta, update, playerSprite, tick,
     enterPhase, scoreMove, respawn, resolveMove, resolvePhase,
     wrapDistance, createHazards, advanceHazard, advanceHazards,
+    overlaps, playerBox, hazardBox, hits, hitBy, strikePlayer,
     phaseAcceptsInput, sinkProgress,
     HUD_COLOR, HUD_FONT, HUD_MARGIN,
     setupContext, drawSprite, drawBoard, drawPlayer, drawHud, render,
-    snapTile, drawHazard, drawHazards,
+    snapTile, drawHazard, drawHazards, flashHidden,
     drawLoadFailure,
     boot,
   };

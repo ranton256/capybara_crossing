@@ -4,11 +4,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  SPAWN, GOAL_ROW, PHASES, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL, COLS,
+  SPAWN, GOAL_ROW, PHASES, SINK_SECONDS, DEATH_SECONDS,
+  POINTS_ADVANCE, POINTS_GOAL, COLS,
   createState, createInput, pressKey, update, scoreMove,
 } = require('./game.js');
 
 const FRAME = 1 / 60;
+
+// Scoring is independent of traffic, and M4 makes traffic lethal. These tests
+// run on a hazard-free board so they exercise scoring rather than the luck of
+// where the lanes happen to be -- at t=0 the player's box ends at exactly 7.00
+// and a truck begins at exactly 7.00, so the default board survives by a
+// zero-width margin. Collision has its own tests.
+const game = () => Object.assign(createState(), { hazards: [] });
+
 
 function press(state, input, key) {
   pressKey(input, key);
@@ -27,7 +36,7 @@ function until(state, input, phase, act, limit) {
 }
 
 function at(col, row, extra) {
-  return Object.assign(createState(), { player: { col: col, row: row, facing: 'up' } }, extra || {});
+  return Object.assign(game(), { player: { col: col, row: row, facing: 'up' } }, extra || {});
 }
 
 /* --- the watermark ------------------------------------------------------- */
@@ -41,7 +50,7 @@ test('scoreMove awards only for a row north of the watermark', () => {
 
 test('a first step north scores ten', () => {
   const input = createInput();
-  const state = press(createState(), input, 'ArrowUp');
+  const state = press(game(), input, 'ArrowUp');
   assert.equal(state.score, POINTS_ADVANCE);
   assert.equal(state.northmost, SPAWN.row - 1);
 });
@@ -61,7 +70,7 @@ test('returning to a row already reached scores nothing', () => {
 
 test('moving sideways scores nothing', () => {
   const input = createInput();
-  let state = createState();
+  let state = game();
   state = press(state, input, 'ArrowLeft');
   state = press(state, input, 'ArrowRight');
   assert.equal(state.score, 0);
@@ -122,7 +131,7 @@ test('score starts at zero with the watermark at the spawn row', () => {
 
 test('the watermark resets after a spa clear but the score does not', () => {
   const input = createInput();
-  let state = createState();
+  let state = game();
 
   // Walk the whole way up, scoring each new row plus the goal.
   state = until(state, input, PHASES.PLAYING, (st) => press(st, input, 'ArrowUp'));
@@ -141,7 +150,7 @@ test('the watermark resets after a spa clear but the score does not', () => {
 
 test('score accumulates across rounds', () => {
   const input = createInput();
-  let state = createState();
+  let state = game();
   const perRound = 6 * POINTS_ADVANCE + POINTS_GOAL;
 
   for (let round = 1; round <= 3; round++) {
@@ -149,6 +158,38 @@ test('score accumulates across rounds', () => {
     state = until(state, input, PHASES.SINKING, (st) => update(st, FRAME, input));
     assert.equal(state.score, perRound * round, `after round ${round}`);
   }
+});
+
+test('a step that proves fatal still scores its advance', () => {
+  // DECISIONS.md gap 16. The row was reached; surviving it is not a condition.
+  const input = createInput();
+  const state = Object.assign(createState(), {
+    player: { col: 6, row: 2, facing: 'up' },
+    hazards: [{ row: 1, x: 5.5, width: 2, speed: 1.5, sprite: 'truck' }],
+    northmost: 2, score: 40,
+  });
+  pressKey(input, 'ArrowUp');
+  const after = update(state, FRAME, input);
+
+  assert.equal(after.phase, PHASES.DYING, 'the step was fatal');
+  assert.equal(after.score, 50, 'and still scored its advance');
+  assert.equal(after.lives, state.lives - 1);
+});
+
+test('the watermark still resets after a fatal advance', () => {
+  const input = createInput();
+  let state = Object.assign(createState(), {
+    player: { col: 6, row: 2, facing: 'up' },
+    hazards: [{ row: 1, x: 5.5, width: 2, speed: 1.5, sprite: 'truck' }],
+    northmost: 2, score: 40,
+  });
+  pressKey(input, 'ArrowUp');
+  state = update(state, FRAME, input);
+  assert.equal(state.northmost, 1, 'the watermark advanced with the fatal step');
+
+  for (let t = 0; t < DEATH_SECONDS + FRAME; t += FRAME) state = update(state, FRAME, input);
+  assert.equal(state.northmost, SPAWN.row, 'reset on respawn');
+  assert.equal(state.score, 50, 'the points are retained');
 });
 
 test('scoreMove does not mutate and is a pure function of its arguments', () => {

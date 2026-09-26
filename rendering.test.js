@@ -8,7 +8,8 @@ const path = require('node:path');
 const {
   COLS, ROWS, TILE, SCALE, SPRITES, ROW_TILES, ROW_ROLES, ROLE_TILES,
   createState, movePlayer, setupContext, drawBoard, drawPlayer, render, playerSprite,
-  drawHud, sinkProgress, PHASES, SINK_SECONDS,
+  drawHud, sinkProgress, PHASES, SINK_SECONDS, DEATH_SECONDS,
+  FLASH_MS, FLASH_SECONDS, FLASH_TOGGLE_MS, FLASH_TOGGLE_SECONDS, flashHidden,
   LANES, createHazards, snapTile, drawHazard, drawHazards,
 } = require('./game.js');
 
@@ -181,6 +182,151 @@ test('the player is drawn at the tile it occupies', () => {
   assert.equal(call.dy, state.player.row * TILE);
   assert.deepEqual(
     { x: call.sx, y: call.sy }, { x: SPRITES.capy_left_1.x, y: SPRITES.capy_left_1.y });
+});
+
+/* --- the defeat pose and the hit flash ------------------------------------ */
+
+function dying(elapsed, extra) {
+  return Object.assign(createState(), {
+    phase: PHASES.DYING, phaseElapsed: elapsed,
+    player: { col: 4, row: 1, facing: 'up' },
+  }, extra || {});
+}
+
+test('a struck capybara is drawn from the defeat frame', () => {
+  assert.equal(playerSprite(dying(0.2)), 'capy_defeat');
+  assert.equal(playerSprite(createState()), 'capy_up_1', 'walk frames while playing');
+});
+
+test('the defeat pose is drawn where the player was struck', () => {
+  const ctx = stubContext();
+  drawPlayer(ctx, ATLAS, dying(0.2));
+  const call = ctx.calls.find((c) => c.op === 'drawImage');
+  assert.equal(call.dx, 4 * TILE, 'the impact column');
+  assert.equal(call.dy, 1 * TILE, 'the impact row');
+  assert.equal(call.sx, SPRITES.capy_defeat.x);
+  assert.equal(call.sy, SPRITES.capy_defeat.y);
+});
+
+test('the player strobes during the flash window', () => {
+  const seen = new Set();
+  for (let t = 0; t < FLASH_SECONDS - 1e-9; t += FLASH_TOGGLE_SECONDS) {
+    seen.add(flashHidden(dying(t + FLASH_TOGGLE_SECONDS / 2)));
+  }
+  assert.ok(seen.has(true) && seen.has(false), 'both drawn and not-drawn occur');
+});
+
+test('the flash alternates on each toggle boundary', () => {
+  const samples = [];
+  for (let i = 0; i < FLASH_MS / FLASH_TOGGLE_MS; i++) {
+    samples.push(flashHidden(dying((i + 0.5) * FLASH_TOGGLE_SECONDS)));
+  }
+  for (let i = 1; i < samples.length; i++) {
+    assert.notEqual(samples[i], samples[i - 1], `toggle ${i} flipped`);
+  }
+});
+
+test('the flash ends before the beat does', () => {
+  assert.equal(flashHidden(dying(FLASH_SECONDS)), false, 'drawn at the window edge');
+  assert.equal(flashHidden(dying(0.3)), false, 'drawn well after it');
+  assert.equal(flashHidden(dying(DEATH_SECONDS - 0.01)), false, 'drawn at the end');
+});
+
+test('the flash is identical at 60Hz and 120Hz', () => {
+  // The property is that the flash is driven by accumulated seconds rather than
+  // by a frame counter, which would strobe twice as fast at the higher rate. So
+  // both clocks are advanced to the SAME instant -- a multiple of 1/60, which
+  // both step sizes can reach -- and must agree there. Sampling the two clocks
+  // at different instants would compare different points in the beat, which is
+  // ordinary sampling, not rate dependence.
+  for (let frames = 1; frames <= 8; frames++) {
+    let a = 0;
+    for (let i = 0; i < frames; i++) a += 1 / 60;
+    let b = 0;
+    for (let i = 0; i < frames * 2; i++) b += 1 / 120;
+
+    assert.ok(Math.abs(a - b) < 1e-9, 'both clocks reached the same instant');
+    assert.equal(flashHidden(dying(a)), flashHidden(dying(b)),
+      `same drawn state after ${frames} frames of 1/60 vs ${frames * 2} of 1/120`);
+  }
+});
+
+test('the flash is a function of elapsed time alone', () => {
+  // Reaching 50ms in one big step or many small ones gives the same result.
+  const oneStep = dying(0.05);
+  let many = 0;
+  for (let i = 0; i < 50; i++) many += 0.001;
+  assert.equal(flashHidden(dying(many)), flashHidden(oneStep),
+    'the path taken to an instant does not change the flash');
+});
+
+test('nothing flashes outside the dying phase', () => {
+  assert.equal(flashHidden(createState()), false);
+  assert.equal(flashHidden(Object.assign(createState(), {
+    phase: PHASES.SINKING, phaseElapsed: 0.01 })), false);
+  assert.equal(flashHidden(Object.assign(createState(), {
+    phase: PHASES.GAME_OVER, phaseElapsed: 0.01 })), false);
+});
+
+test('the board and traffic are unaffected by the flash', () => {
+  const hidden = [];
+  for (let i = 0; i < FLASH_MS / FLASH_TOGGLE_MS; i++) {
+    const t = (i + 0.5) * FLASH_TOGGLE_SECONDS;
+    if (flashHidden(dying(t))) hidden.push(t);
+  }
+  assert.ok(hidden.length > 0, 'found a not-drawn moment');
+
+  const ctx = stubContext();
+  render(ctx, ATLAS, dying(hidden[0]));
+  const draws = ctx.calls.filter((c) => c.op === 'drawImage');
+  assert.equal(draws.length, COLS * ROWS + HAZARD_COUNT,
+    'board and hazards drawn, player omitted');
+  assert.ok(ctx.calls.some((c) => c.op === 'fillText'), 'the display is still drawn');
+});
+
+test('the player is drawn again in a shown moment', () => {
+  const shown = [];
+  for (let i = 0; i < FLASH_MS / FLASH_TOGGLE_MS; i++) {
+    const t = (i + 0.5) * FLASH_TOGGLE_SECONDS;
+    if (!flashHidden(dying(t))) shown.push(t);
+  }
+  const ctx = stubContext();
+  render(ctx, ATLAS, dying(shown[0]));
+  assert.equal(ctx.calls.filter((c) => c.op === 'drawImage').length,
+    COLS * ROWS + HAZARD_COUNT + 1);
+});
+
+/* --- the halted game ------------------------------------------------------ */
+
+test('a halted game holds the defeat pose', () => {
+  // DECISIONS.md gap 15. Without this the phase falls through to a walk frame
+  // and the capybara stands up unharmed at the tile where it was run over.
+  const over = Object.assign(createState(), {
+    phase: PHASES.GAME_OVER, phaseElapsed: 0, lives: 0,
+    player: { col: 4, row: 3, facing: 'up' },
+  });
+  assert.equal(playerSprite(over), 'capy_defeat');
+
+  const ctx = stubContext();
+  drawPlayer(ctx, ATLAS, over);
+  const call = ctx.calls.find((c) => c.op === 'drawImage');
+  assert.equal(call.sx, SPRITES.capy_defeat.x);
+  assert.equal(call.dx, 4 * TILE, 'at the tile of the final collision');
+  assert.equal(call.dy, 3 * TILE);
+});
+
+test('a halted game still draws the board, the traffic and the display', () => {
+  const ctx = stubContext();
+  const state = Object.assign(createState(), {
+    phase: PHASES.GAME_OVER, phaseElapsed: 0, lives: 0, score: 130,
+  });
+  render(ctx, ATLAS, state);
+
+  const draws = ctx.calls.filter((c) => c.op === 'drawImage');
+  assert.equal(draws.length, COLS * ROWS + HAZARD_COUNT + 1, 'nothing has stopped drawing');
+  const text = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+  assert.ok(text.some((t) => /LIVES 0/.test(t)), 'the display shows no lives left');
+  assert.ok(text.some((t) => /SCORE 130/.test(t)));
 });
 
 /* --- frame composition -------------------------------------------------- */

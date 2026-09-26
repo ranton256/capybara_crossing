@@ -2,8 +2,9 @@
 
 ### Requirement: A struck capybara is drawn in its defeat pose
 
-While the game is in its dying state the player SHALL be drawn from the defeat
-frame rather than from a directional walk frame, at the tile where it was struck.
+While the game is in its dying state, and once it is over, the player SHALL be
+drawn from the defeat frame rather than from a directional walk frame, at the
+tile where it was struck.
 
 #### Scenario: The defeat frame is used while dying
 
@@ -15,6 +16,12 @@ frame rather than from a directional walk frame, at the tile where it was struck
 - **WHEN** the game is dying and a frame is rendered
 - **THEN** the player is drawn at the column and row it occupied at the collision
 - **AND** not at the spawn cell
+
+#### Scenario: The defeat pose is held once the game is over
+
+- **WHEN** the game is over and a frame is rendered
+- **THEN** the player's source rectangle is the recorded defeat frame
+- **AND** it is drawn at the tile where the final collision occurred
 
 #### Scenario: Walk frames resume after respawn
 

@@ -118,9 +118,16 @@ Drawn or not is `floor(phaseElapsed / 0.025)` being even, for the first 100ms.
 accumulated seconds makes the flash refresh-rate independent for the same reason
 the beat is, and the spec has a scenario asserting it.
 
-*Trade-off:* at exactly 25ms boundaries floating-point accumulation could land
-either side. This is cosmetic for one frame and needs no epsilon — unlike a phase
-transition, where landing on the wrong side changes the beat's length.
+*Boundary handling:* at exactly 25ms boundaries floating-point accumulation lands
+either side depending on step size — three frames of 1/60 reach
+0.050000000000000003 while six of 1/120 reach 0.049999999999999996, putting them
+in different toggle bands at the same instant. An earlier draft of this document
+called that cosmetic and exempted it from the tolerance the phase clock uses.
+That was wrong: the rendering spec requires the flash be identical at any refresh
+rate, and it would not have been. The flash therefore uses the same
+`TIME_EPSILON` as a phase transition, at both the toggle boundary and the end of
+the 100ms window. One float-boundary policy for the whole file is also simply
+easier to reason about than two.
 
 ## Risks / Trade-offs
 
