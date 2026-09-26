@@ -9,9 +9,11 @@ const {
   COLS, ROWS, TILE, SCALE, SPRITES, ROW_TILES, ROW_ROLES, ROLE_TILES,
   createState, movePlayer, setupContext, drawBoard, drawPlayer, render, playerSprite,
   drawHud, sinkProgress, PHASES, SINK_SECONDS,
+  LANES, createHazards, snapTile, drawHazard, drawHazards,
 } = require('./game.js');
 
 const ATLAS = { __stub: 'atlas image' };
+const HAZARD_COUNT = LANES.reduce((n, l) => n + l.count, 0);
 
 // Records every context call in order so draw ordering can be asserted.
 function stubContext() {
@@ -21,6 +23,10 @@ function stubContext() {
     setTransform(...args) { calls.push({ op: 'setTransform', args }); },
     clearRect(...args) { calls.push({ op: 'clearRect', args }); },
     fillRect(...args) { calls.push({ op: 'fillRect', args }); },
+    save(...args) { calls.push({ op: 'save', args }); },
+    restore(...args) { calls.push({ op: 'restore', args }); },
+    translate(...args) { calls.push({ op: 'translate', args }); },
+    scale(...args) { calls.push({ op: 'scale', args }); },
     fillText(...args) { calls.push({ op: 'fillText', args }); },
     drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh) {
       calls.push({ op: 'drawImage', image, sx, sy, sw, sh, dx, dy, dw, dh });
@@ -190,10 +196,13 @@ test('render draws background, then the player, then the display', () => {
   const ctx = stubContext();
   render(ctx, ATLAS, createState());
   const draws = ctx.calls.filter((c) => c.op === 'drawImage');
-  assert.equal(draws.length, COLS * ROWS + 1, 'board tiles plus one player');
+  assert.equal(draws.length, COLS * ROWS + HAZARD_COUNT + 1,
+    'board tiles, hazards, then one player');
 
   const board = draws.slice(0, COLS * ROWS);
   const player = draws[draws.length - 1];
+  const hazards = draws.slice(COLS * ROWS, draws.length - 1);
+  assert.equal(hazards.length, HAZARD_COUNT, 'hazards sit between board and player');
   for (const call of board) {
     assert.ok(spriteAt(call).startsWith('tile_'), 'the background is drawn first');
   }
@@ -202,6 +211,128 @@ test('render draws background, then the player, then the display', () => {
   const firstText = ctx.calls.findIndex((c) => c.op === 'fillText');
   const lastImage = ctx.calls.map((c) => c.op).lastIndexOf('drawImage');
   assert.ok(firstText > lastImage, 'no sprite is drawn after the display');
+});
+
+/* --- hazards -------------------------------------------------------------- */
+
+const truckAt = (x) => ({ row: 1, x, width: 2, speed: 1.5, sprite: 'truck' });
+const atvAt = (x) => ({ row: 3, x, width: 1, speed: -2.5, sprite: 'atv_red' });
+
+test('snapTile floors a continuous position to a whole art pixel', () => {
+  for (const pos of [0, 0.5, 1.0 / 16, 4.3719, 11.999, -0.8]) {
+    const snapped = snapTile(pos);
+    assert.ok(Number.isInteger(snapped * TILE), `${pos} snapped to a whole pixel`);
+    assert.ok(snapped <= pos + 1e-12, 'floored, never rounded up');
+    assert.ok(pos - snapped < 1 / TILE, 'within one pixel of the true position');
+  }
+});
+
+test('snapping never moves against the direction of travel', () => {
+  let right = 0;
+  let prev = -Infinity;
+  for (let i = 0; i < 200; i++) {
+    right += 1.5 / 60;
+    const snapped = snapTile(right);
+    assert.ok(snapped >= prev, 'rightward motion is monotonic');
+    prev = snapped;
+  }
+
+  let left = 12;
+  prev = Infinity;
+  for (let i = 0; i < 200; i++) {
+    left -= 2.5 / 60;
+    const snapped = snapTile(left);
+    assert.ok(snapped <= prev, 'leftward motion is monotonic');
+    prev = snapped;
+  }
+});
+
+test('a hazard is drawn at its lane row and its own width', () => {
+  const ctx = stubContext();
+  drawHazard(ctx, ATLAS, atvAt(4));
+  const call = ctx.calls.find((c) => c.op === 'drawImage');
+  assert.equal(call.dy, 3 * TILE, 'lane row');
+  assert.equal(call.dw, TILE, 'one tile wide');
+  assert.equal(call.sw, SPRITES.atv_red.w, 'full source rectangle');
+});
+
+test('a two-tile truck is drawn two tiles wide', () => {
+  const ctx = stubContext();
+  drawHazard(ctx, ATLAS, truckAt(3));
+  const call = ctx.calls.find((c) => c.op === 'drawImage');
+  assert.equal(call.dw, 2 * TILE);
+  assert.equal(call.sw, SPRITES.truck.w);
+  assert.equal(SPRITES.truck.w, 32, 'the atlas truck really is two tiles');
+});
+
+test('a hazard draws at a snapped destination', () => {
+  const ctx = stubContext();
+  drawHazard(ctx, ATLAS, atvAt(4.3719));
+  const call = ctx.calls.find((c) => c.op === 'drawImage');
+  assert.ok(Number.isInteger(call.dx), `dx ${call.dx} is a whole pixel`);
+  assert.equal(call.dx, Math.floor(4.3719 * TILE));
+});
+
+test('a rightward hazard is mirrored about its own position', () => {
+  const ctx = stubContext();
+  drawHazard(ctx, ATLAS, truckAt(3));
+  const ops = ctx.calls.map((c) => c.op);
+  assert.deepEqual(ops, ['save', 'translate', 'scale', 'drawImage', 'restore']);
+
+  const scale = ctx.calls.find((c) => c.op === 'scale');
+  assert.deepEqual(scale.args, [-1, 1], 'flipped horizontally only');
+
+  const translate = ctx.calls.find((c) => c.op === 'translate');
+  assert.equal(translate.args[0], 3 * TILE + SPRITES.truck.w,
+    'translated to the sprite far edge, so it occupies the same tiles');
+  assert.equal(translate.args[1], 1 * TILE, 'at the lane row');
+});
+
+test('a leftward hazard is not mirrored', () => {
+  const ctx = stubContext();
+  drawHazard(ctx, ATLAS, atvAt(4));
+  assert.deepEqual(ctx.calls.map((c) => c.op), ['drawImage'], 'drawn plainly');
+});
+
+test('mirroring does not leak into later drawing', () => {
+  const ctx = stubContext();
+  const state = Object.assign(createState(), { hazards: [truckAt(3)] });
+  render(ctx, ATLAS, state);
+
+  const saves = ctx.calls.filter((c) => c.op === 'save').length;
+  const restores = ctx.calls.filter((c) => c.op === 'restore').length;
+  assert.equal(saves, restores, 'every save is restored');
+
+  const lastRestore = ctx.calls.map((c) => c.op).lastIndexOf('restore');
+  const playerIndex = ctx.calls.map((c) => c.op).lastIndexOf('drawImage');
+  assert.ok(playerIndex > lastRestore, 'the player is drawn after the flip is undone');
+});
+
+test('every configured hazard draws at the width its geometry claims', () => {
+  // The hand-built fixtures above prove drawHazard honours a well-formed hazard.
+  // This proves the shipped lanes are well-formed.
+  for (const hazard of createHazards()) {
+    const ctx = stubContext();
+    drawHazard(ctx, ATLAS, hazard);
+    const call = ctx.calls.find((c) => c.op === 'drawImage');
+    assert.equal(call.dw, hazard.width * TILE,
+      `${hazard.sprite} drew ${call.dw}px for a ${hazard.width}-tile hazard`);
+    assert.equal(call.sw, call.dw, 'source and destination widths agree');
+    assert.equal(call.dh, TILE, 'one tile tall');
+  }
+});
+
+test('every hazard in state is drawn exactly once', () => {
+  const ctx = stubContext();
+  drawHazards(ctx, ATLAS, createState());
+  assert.equal(ctx.calls.filter((c) => c.op === 'drawImage').length, HAZARD_COUNT);
+});
+
+test('drawing does not alter hazard positions', () => {
+  const state = createState();
+  const before = state.hazards.map((h) => h.x);
+  render(stubContext(), ATLAS, state);
+  assert.deepEqual(state.hazards.map((h) => h.x), before);
 });
 
 /* --- the heads-up display ------------------------------------------------ */

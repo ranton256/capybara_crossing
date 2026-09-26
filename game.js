@@ -92,11 +92,22 @@ const SPRITES = {
   capy_left_2:  { x:  80, y:  0, w: 16, h: 16 },
   capy_right_1: { x:  96, y:  0, w: 16, h: 16 },
   capy_right_2: { x: 112, y:  0, w: 16, h: 16 },
+  truck:        { x:  32, y: 48, w: 32, h: 16 },
+  atv_red:      { x:   0, y: 48, w: 16, h: 16 },
+  atv_blue:     { x:  16, y: 48, w: 16, h: 16 },
   tile_start:   { x:   0, y: 32, w: 16, h: 16 },
   tile_path:    { x:  16, y: 32, w: 16, h: 16 },
   tile_median:  { x:  32, y: 32, w: 16, h: 16 },
   tile_spa:     { x:  48, y: 32, w: 16, h: 16 },
 };
+
+// Lane traffic. Counts and gaps come from DECISIONS.md gaps 3 and 10; widths
+// and speeds are Fixed Parameters. The sign of `speed` carries direction, so the
+// wrap condition and the mirroring decision both read one field.
+const LANES = [
+  { row: 1, count: 2, width: 2, speed:  1.5, sprites: ['truck'] },
+  { row: 3, count: 3, width: 1, speed: -2.5, sprites: ['atv_red', 'atv_blue'] },
+];
 
 const DIRECTIONS = {
   up:    { dc:  0, dr: -1 },
@@ -130,6 +141,7 @@ function createState() {
     lives: STARTING_LIVES,
     // Northmost row reached this life. Resets to the spawn row each round.
     northmost: SPAWN.row,
+    hazards: createHazards(),
   };
 }
 
@@ -150,6 +162,49 @@ function takeDirection(input) {
   const direction = input.pending;
   input.pending = null;
   return direction;
+}
+
+// A hazard travels the board plus its own width between successive wraps. Every
+// hazard in a lane shares this, which is why gaps set at init never drift.
+function wrapDistance(lane) {
+  return COLS + lane.width;
+}
+
+// Spread each lane's hazards evenly across its wrap distance, cycling sprites.
+// Generated rather than listed so even spacing is a property of the constructor
+// instead of a hand-written table a later edit can quietly break.
+function createHazards() {
+  const hazards = [];
+  for (const lane of LANES) {
+    const period = wrapDistance(lane) / lane.count;
+    for (let i = 0; i < lane.count; i++) {
+      hazards.push({
+        row: lane.row,
+        x: i * period,
+        width: lane.width,
+        speed: lane.speed,
+        sprite: lane.sprites[i % lane.sprites.length],
+      });
+    }
+  }
+  return hazards;
+}
+
+// Wrapping translates by exactly the wrap distance rather than assigning a fixed
+// re-entry position: assignment discards the overshoot, so every wrap would lose
+// a sliver of travel and the lane's gaps would drift apart over a session.
+// Looped rather than applied once so an unclamped delta supplied directly in a
+// test cannot leave a hazard outside the board.
+function advanceHazard(hazard, deltaSeconds) {
+  const span = COLS + hazard.width;
+  let x = hazard.x + hazard.speed * deltaSeconds;
+  while (x >= COLS) x -= span;
+  while (x <= -hazard.width) x += span;
+  return Object.assign({}, hazard, { x: x });
+}
+
+function advanceHazards(hazards, deltaSeconds) {
+  return hazards.map(function (h) { return advanceHazard(h, deltaSeconds); });
 }
 
 // Every transition resets the per-phase accumulator, including a transition to
@@ -238,6 +293,9 @@ function update(state, deltaSeconds, input) {
   let next = Object.assign({}, state, {
     elapsed: state.elapsed + deltaSeconds,
     phaseElapsed: state.phaseElapsed + deltaSeconds,
+    // Above the phase gate on purpose: traffic is a world, not a turn, so its
+    // motion has one rule with no exception. DECISIONS.md gap 12.
+    hazards: advanceHazards(state.hazards, deltaSeconds),
   });
 
   next = resolvePhase(next);
@@ -298,6 +356,37 @@ function drawBoard(ctx, atlas) {
   }
 }
 
+// Snap a continuous tile position to a whole art pixel (1/16 of a tile), which
+// at integer scale is a whole device pixel. Floor rather than round: rounding
+// makes the drawn position jump backwards when a hazard crosses a half-pixel
+// while still genuinely advancing, which reads as a stutter. DECISIONS.md gap 9.
+function snapTile(position) {
+  return Math.floor(position * TILE) / TILE;
+}
+
+// All vehicle art faces left, so a rightward hazard is drawn mirrored about its
+// own midpoint. The transform is restored afterwards -- the player and the HUD
+// are drawn after hazards and must not inherit the flip.
+function drawHazard(ctx, atlas, hazard) {
+  const sprite = SPRITES[hazard.sprite];
+  const x = snapTile(hazard.x) * TILE;
+  const y = hazard.row * TILE;
+
+  if (hazard.speed > 0) {
+    ctx.save();
+    ctx.translate(x + sprite.w, y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(atlas, sprite.x, sprite.y, sprite.w, sprite.h, 0, 0, sprite.w, sprite.h);
+    ctx.restore();
+    return;
+  }
+  ctx.drawImage(atlas, sprite.x, sprite.y, sprite.w, sprite.h, x, y, sprite.w, sprite.h);
+}
+
+function drawHazards(ctx, atlas, state) {
+  for (const hazard of state.hazards) drawHazard(ctx, atlas, hazard);
+}
+
 // While sinking, the sprite's top edge descends toward a fixed lower line and
 // everything below it is clipped away, so it reads as going under rather than
 // vanishing. DECISIONS.md gap 7. Destination offset and drawn height always sum
@@ -330,10 +419,11 @@ function drawHud(ctx, state) {
   ctx.fillText('LIVES ' + state.lives, COLS * TILE - HUD_MARGIN, TILE / 2);
 }
 
-// Painter's order: clear, background, entities, display.
+// Painter's order: clear, background, hazards, player, display.
 function render(ctx, atlas, state) {
   ctx.clearRect(0, 0, COLS * TILE, ROWS * TILE);
   drawBoard(ctx, atlas);
+  drawHazards(ctx, atlas, state);
   drawPlayer(ctx, atlas, state);
   drawHud(ctx, state);
 }
@@ -415,14 +505,16 @@ if (typeof module !== 'undefined' && module.exports) {
     COLS, ROWS, TILE, SCALE, CANVAS_WIDTH, CANVAS_HEIGHT,
     SPAWN, MAX_DELTA_SECONDS, ROW_ROLES, ROLE_TILES, ROW_TILES, SPRITES,
     PHASES, SINK_MS, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL,
-    GOAL_ROW, STARTING_LIVES, TIME_EPSILON,
+    GOAL_ROW, STARTING_LIVES, TIME_EPSILON, LANES,
     DIRECTIONS, KEY_DIRECTIONS,
     clamp, createState, createInput, pressKey, takeDirection,
     movePlayer, frameDelta, update, playerSprite, tick,
     enterPhase, scoreMove, respawn, resolveMove, resolvePhase,
+    wrapDistance, createHazards, advanceHazard, advanceHazards,
     phaseAcceptsInput, sinkProgress,
     HUD_COLOR, HUD_FONT, HUD_MARGIN,
     setupContext, drawSprite, drawBoard, drawPlayer, drawHud, render,
+    snapTile, drawHazard, drawHazards,
     drawLoadFailure,
     boot,
   };

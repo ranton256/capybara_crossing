@@ -98,6 +98,10 @@ most expensive available mistake on this project.
 | 6 | Unbounded delta time | Silence | Clamp to 0.1s | M1 |
 | 7 | No sink art for the 400ms beat | Art gap | Descend into the tile | M2 |
 | 8 | HUD appearance | Silence | Pixel text, score left, lives right | M2 |
+| 9 | Fractional hazard positions vs crisp art | Conflict | Snap to whole pixels at draw time | M3 |
+| 10 | 3 ATVs do not divide a 13-tile wrap | Arithmetic | Even spacing, fractional starts | M3 |
+| 11 | Two ATV sprites, three ATVs | Silence | Alternate red and blue | M3 |
+| 12 | Does traffic move while not playing | Silence | Yes, motion is phase-independent | M3 |
 
 ---
 
@@ -309,6 +313,102 @@ contrast.
 **Note for M2.** Lives cannot change until M4 introduces death, so M2 draws a
 static `3`. That is intentional, not a stub — the counter is real state read from
 the game, it simply has nothing to decrement it yet.
+
+---
+
+### 9. Continuous hazard positions collide with crisp pixel art
+
+**What the spec says.** Hazard speeds are in tiles per second and scale by
+elapsed time. Separately, the rendering requirements demand integer scaling and
+disabled smoothing so the 16x16 art stays hard-edged. Nothing reconciles the two:
+a hazard at 1.5 tiles/sec is at a fractional tile position on almost every frame.
+
+**Why it matters.** It is the difference between a retro game and a modern game
+wearing retro art, and it applies to every hazard on every frame rather than to
+one sprite in one state.
+
+**Decision.** Position stays continuous in state; the draw call floors it to a
+whole device pixel.
+
+```
+state x = 4.3719...          exact, used for wrap and (in M4) collision
+draw  x = floor(x * 16) / 16 snapped
+
+   frame 1  |[TT]      |   snapped
+   frame 2  |[TT]      |   same pixel
+   frame 3  | [TT]     |   moves one pixel
+```
+
+**Rationale.** Simulation accuracy and display accuracy are different concerns,
+and conflating them loses one of them. Keeping state continuous means M4's
+collision maths is exact; snapping at the boundary means the art never shimmers.
+Motion is visibly stepped at close range, which is what the genre looks like.
+
+**Note.** This is the inverse of the M2 sink (gap 7), which draws at fractional
+offsets deliberately because 400ms of stepped descent would read as broken. Both
+are recorded so the difference is visible as a choice rather than an oversight.
+
+---
+
+### 10. Three ATVs do not divide a thirteen-tile wrap
+
+**What the spec says.** Nothing. Gap 3 chose 3 ATVs with 3-tile gaps, which was
+decided before the wrap arithmetic was worked out.
+
+**Why it matters.** A lane's wrap distance is `12 + hazard width`, so row 3 is 13
+tiles, and 13 does not divide by 3. Every hazard in a lane shares a speed and a
+wrap distance, so whatever spacing is set at initialisation is preserved exactly
+and forever. This is permanent.
+
+**Decision.** Even spacing with fractional start positions: period `13/3 = 4.333`
+tiles, so the gaps are a uniform 3.333.
+
+```
+wrap span = 12 + 1 = 13 tiles
+starts    = 0, 4.333, 8.667
+
+  <--[A]...[A]...[A]...
+gaps: 3.33, 3.33, 3.33    uniform forever
+```
+
+**Rationale.** Integer starts of 0, 4, 8 would give gaps of 3, 3 and 5 — stable
+but visibly irregular, with one lane opening noticeably easier than the others.
+Fractional starts cost nothing, since positions are continuous floats anyway and
+only the draw call cares about whole pixels (gap 9).
+
+**Refines gap 3**, which said "3-tile gaps". Read that as the intent; 3.333 is
+the arithmetic that delivers it. Row 1 needs no such correction: 2 trucks over a
+14-tile wrap is exactly 7 apart, giving the 5-tile gaps gap 3 specified.
+
+---
+
+### 11. Two ATV sprites, three ATVs
+
+**What the spec says.** The atlas ships `atv_red` and `atv_blue`. Row 3 carries
+three ATVs. Nothing says which to use.
+
+**Decision.** Alternate the two across the lane, so consecutive ATVs differ.
+
+**Rationale.** It makes an individual vehicle easy to follow as it wraps, which
+matters when judging a gap, and it uses art that was drawn and shipped. Using
+only red would leave `atv_blue` idle with no plan to reach it.
+
+---
+
+### 12. Whether traffic moves while the game is not playing
+
+**What the spec says.** Nothing. The question only arises once the state machine
+exists, which is why it could not have been asked before M2.
+
+**Decision.** Hazard motion is independent of the phase. Traffic keeps flowing
+during the spa sink, and will keep flowing during M4's death beat.
+
+**Rationale.** Not user-chosen — recorded here so it is not mistaken for
+something the spec asked for. The lanes are a world rather than a turn, and
+freezing them would make the beat read as a pause in the game rather than a beat
+within it. It also means hazard motion has exactly one rule instead of one rule
+plus an exception, which matters in M4 where a frozen lane during the death beat
+would let the player respawn into a hazard that never moved.
 
 ---
 

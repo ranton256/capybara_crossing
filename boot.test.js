@@ -12,7 +12,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { boot, TILE, SPRITES, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL } = require('./game.js');
+const { boot, TILE, SPRITES, SINK_SECONDS, POINTS_ADVANCE, POINTS_GOAL,
+        LANES } = require('./game.js');
+const HAZARD_COUNT = LANES.reduce((n, l) => n + l.count, 0);
 
 /* --- a hand-rolled DOM, no dependencies --------------------------------- */
 
@@ -25,6 +27,10 @@ function fakeEnv(atlas) {
     clearRect: record('clearRect'),
     fillRect: record('fillRect'),
     fillText: record('fillText'),
+    save: record('save'),
+    restore: record('restore'),
+    translate: record('translate'),
+    scale: record('scale'),
     drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh) {
       calls.push({ op: 'drawImage', sx, sy, sw, sh, dx, dy, dw, dh });
     },
@@ -137,7 +143,8 @@ test('the first frame renders the board and the player', () => {
 
   assert.ok(env.calls.some((c) => c.op === 'clearRect'), 'cleared');
   const draws = env.calls.filter((c) => c.op === 'drawImage');
-  assert.equal(draws.length, 12 * 7 + 1, 'board tiles plus the player');
+  assert.equal(draws.length, 12 * 7 + HAZARD_COUNT + 1,
+    'board tiles, hazards, then the player');
   assert.equal(playerRow(env), 6, 'the player starts on the spawn row');
 });
 
