@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   PHASES, SINK_MS, SINK_SECONDS, DEATH_MS, DEATH_SECONDS,
   SPAWN, STARTING_LIVES, GOAL_ROW, MAX_DELTA_SECONDS,
+  RESTART_KEYS,
   createState, createInput, pressKey, update, enterPhase, respawn, phaseAcceptsInput,
   strikePlayer,
 } = require('./game.js');
@@ -402,6 +403,153 @@ test('traffic keeps flowing while the game is over', () => {
   }
 });
 
+/* --- starting a new run --------------------------------------------------- */
+
+function gameOver(extra) {
+  return Object.assign(createState(), {
+    phase: PHASES.GAME_OVER, phaseElapsed: 0, lives: 0, score: 90,
+    player: { col: 4, row: 1, facing: 'left' }, northmost: 1,
+  }, extra || {});
+}
+
+test('Enter starts a new run', () => {
+  const input = createInput();
+  pressKey(input, 'Enter');
+  const after = update(gameOver(), FRAME, input);
+  assert.equal(after.phase, PHASES.PLAYING);
+  assert.deepEqual(after.player, { col: SPAWN.col, row: SPAWN.row, facing: SPAWN.facing });
+});
+
+test('every declared restart key is one a browser actually produces', () => {
+  // 'Space' is event.code and 'Spacebar' is legacy IE; neither can ever appear
+  // as event.key in a modern browser, so neither belongs in the map.
+  assert.deepEqual(Object.keys(RESTART_KEYS).sort(), [' ', 'Enter']);
+  for (const key of Object.keys(RESTART_KEYS)) {
+    const input = createInput();
+    pressKey(input, key);
+    assert.equal(input.restart, true, `${JSON.stringify(key)} registers`);
+    assert.equal(input.pending, null, 'and does not populate the direction slot');
+  }
+});
+
+test('Space starts a new run', () => {
+  const input = createInput();
+  pressKey(input, ' ');
+  assert.equal(update(gameOver(), FRAME, input).phase, PHASES.PLAYING);
+});
+
+test('a new run clears the score and restores the board', () => {
+  const fresh = createState();
+  const input = createInput();
+  pressKey(input, 'Enter');
+  const after = update(gameOver(), FRAME, input);
+
+  assert.equal(after.score, 0);
+  assert.equal(after.lives, STARTING_LIVES);
+  assert.equal(after.northmost, SPAWN.row);
+  assert.deepEqual(after.hazards.map((h) => h.x), fresh.hazards.map((h) => h.x),
+    'hazards are back at their starting layout');
+  assert.deepEqual(after.hazards.map((h) => h.sprite), fresh.hazards.map((h) => h.sprite));
+});
+
+test('directional input does not leave the game over state', () => {
+  // Replaces M4's "the game over state is terminal in this change", which this
+  // change makes false. The delta spec records that retirement.
+  const input = createInput();
+  let state = gameOver();
+  for (let i = 0; i < 30; i++) {
+    pressKey(input, 'ArrowUp');
+    state = update(state, FRAME, input);
+  }
+  assert.equal(state.phase, PHASES.GAME_OVER);
+  assert.equal(state.player.col, 4, 'the player did not move');
+  assert.equal(state.score, 90);
+});
+
+test('a direction buffered alongside the restart key is discarded', () => {
+  // The restart path is the one place update returns before draining the
+  // direction slot. Without an explicit discard, a player mashing an arrow while
+  // hitting Enter leaves the spawn cell on the new run's next frame.
+  const input = createInput();
+  pressKey(input, 'ArrowUp');
+  pressKey(input, 'Enter');
+
+  let state = update(gameOver(), FRAME, input);
+  assert.equal(state.phase, PHASES.PLAYING);
+  assert.equal(input.pending, null, 'the direction was discarded, not carried');
+
+  state = update(state, FRAME, input);
+  assert.equal(state.player.row, SPAWN.row, 'still at the spawn cell');
+  assert.equal(state.score, 0, 'and no points were awarded for a stale move');
+});
+
+test('restart keys do nothing while playing', () => {
+  const input = createInput();
+  const before = Object.assign(createState(), { score: 70, hazards: [] });
+  pressKey(input, 'Enter');
+  const after = update(before, FRAME, input);
+  assert.equal(after.phase, PHASES.PLAYING);
+  assert.equal(after.score, 70, 'the run was not reset');
+  assert.deepEqual(after.player, before.player);
+});
+
+test('restart keys do nothing during a beat', () => {
+  for (const phase of [PHASES.SINKING, PHASES.DYING]) {
+    const input = createInput();
+    let state = Object.assign(createState(), {
+      phase: phase, phaseElapsed: 0, score: 70, hazards: [],
+      player: { col: 3, row: 1, facing: 'up' },
+    });
+    pressKey(input, 'Enter');
+    state = update(state, FRAME, input);
+    assert.equal(state.phase, phase, `${phase} was not interrupted`);
+    assert.equal(state.score, 70);
+  }
+});
+
+test('a stray restart press cannot latch and fire on a later death', () => {
+  // The slot is drained every update, so an Enter pressed mid-run is gone long
+  // before the player dies. Otherwise it would restart the game out from under
+  // them at the moment of impact.
+  const input = createInput();
+  let state = Object.assign(createState(), { score: 70, hazards: [] });
+  pressKey(input, 'Enter');
+  state = update(state, FRAME, input);
+  assert.equal(input.restart, false, 'the press was consumed, not retained');
+
+  state = Object.assign(state, {
+    player: { col: 6, row: 1, facing: 'up' },
+    hazards: [truck(5.5)], lives: 1,
+  });
+  state = update(state, FRAME, input);
+  assert.equal(state.phase, PHASES.DYING, 'the death proceeded normally');
+  assert.equal(state.score, 70, 'and no new run began');
+});
+
+test('a new run can itself be lost and restarted', () => {
+  const input = createInput();
+  pressKey(input, 'Enter');
+  let state = update(gameOver(), FRAME, input);
+  assert.equal(state.phase, PHASES.PLAYING);
+
+  // Lose all three lives again.
+  for (let life = 0; life < STARTING_LIVES; life++) {
+    state = Object.assign({}, state, {
+      player: { col: 6, row: 1, facing: 'up' }, hazards: [truck(5.5)],
+    });
+    state = update(state, FRAME, input);
+    assert.equal(state.phase, PHASES.DYING, `death ${life + 1}`);
+    for (let t = 0; t < DEATH_SECONDS + FRAME; t += FRAME) state = update(state, FRAME, input);
+  }
+  assert.equal(state.phase, PHASES.GAME_OVER);
+  assert.equal(state.lives, 0);
+
+  pressKey(input, ' ');
+  state = update(state, FRAME, input);
+  assert.equal(state.phase, PHASES.PLAYING, 'and restarts again');
+  assert.equal(state.lives, STARTING_LIVES);
+});
+
 test('nothing advances while the game is over', () => {
   const input = createInput();
   let state = Object.assign(createState(), {
@@ -414,7 +562,7 @@ test('nothing advances while the game is over', () => {
     pressKey(input, 'ArrowUp');
     state = update(state, FRAME, input);
   }
-  assert.equal(state.phase, PHASES.GAME_OVER, 'terminal in this change');
+  assert.equal(state.phase, PHASES.GAME_OVER, 'still halted without a restart key');
   assert.deepEqual(state.player, before);
   assert.equal(state.score, 130);
   assert.equal(state.lives, 0);

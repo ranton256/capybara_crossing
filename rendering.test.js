@@ -7,7 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   COLS, ROWS, TILE, SCALE, SPRITES, ROW_TILES, ROW_ROLES, ROLE_TILES,
-  createState, movePlayer, setupContext, drawBoard, drawPlayer, render, playerSprite,
+  createState, createInput, pressKey, update,
+  movePlayer, setupContext, drawBoard, drawPlayer, render, playerSprite, drawGameOver,
   drawHud, sinkProgress, PHASES, SINK_SECONDS, DEATH_SECONDS,
   FLASH_MS, FLASH_SECONDS, FLASH_TOGGLE_MS, FLASH_TOGGLE_SECONDS, flashHidden,
   LANES, createHazards, snapTile, drawHazard, drawHazards,
@@ -34,6 +35,14 @@ function stubContext() {
     },
     set imageSmoothingEnabled(value) { calls.push({ op: 'imageSmoothingEnabled', value }); },
     get imageSmoothingEnabled() { return false; },
+    set fillStyle(value) { calls.push({ op: 'fillStyle', args: [value] }); },
+    get fillStyle() { return ''; },
+    set font(value) { calls.push({ op: 'font', args: [value] }); },
+    get font() { return ''; },
+    set textAlign(value) { calls.push({ op: 'textAlign', args: [value] }); },
+    get textAlign() { return ''; },
+    set textBaseline(value) { calls.push({ op: 'textBaseline', args: [value] }); },
+    get textBaseline() { return ''; },
   };
 }
 
@@ -327,6 +336,84 @@ test('a halted game still draws the board, the traffic and the display', () => {
   const text = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
   assert.ok(text.some((t) => /LIVES 0/.test(t)), 'the display shows no lives left');
   assert.ok(text.some((t) => /SCORE 130/.test(t)));
+});
+
+/* --- the game over screen ------------------------------------------------- */
+
+const over = (extra) => Object.assign(createState(), {
+  phase: PHASES.GAME_OVER, phaseElapsed: 0, lives: 0, score: 90,
+}, extra || {});
+
+test('the wash covers the whole board and is translucent', () => {
+  const ctx = stubContext();
+  drawGameOver(ctx, over());
+
+  const fill = ctx.calls.find((c) => c.op === 'fillRect');
+  assert.deepEqual(fill.args, [0, 0, COLS * TILE, ROWS * TILE], 'full board');
+
+  const style = ctx.calls.find((c) => c.op === 'fillStyle');
+  assert.match(style.args[0], /^rgba\(/, 'an alpha fill');
+  const alpha = Number(style.args[0].match(/,\s*([0-9.]+)\s*\)$/)[1]);
+  assert.ok(alpha > 0 && alpha < 1, `alpha ${alpha} must be translucent, not opaque`);
+});
+
+test('the screen names the state, the final score and the keys', () => {
+  const ctx = stubContext();
+  drawGameOver(ctx, over({ score: 90 }));
+  const text = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+
+  assert.ok(text.some((t) => /GAME OVER/.test(t)));
+  assert.ok(text.some((t) => /FINAL SCORE 90/.test(t)), 'the score from state');
+  assert.ok(text.some((t) => /ENTER/.test(t) && /SPACE/.test(t)), 'both restart keys');
+});
+
+test('the screen follows the score it is given', () => {
+  const ctx = stubContext();
+  drawGameOver(ctx, over({ score: 250 }));
+  const text = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+  assert.ok(text.some((t) => /FINAL SCORE 250/.test(t)));
+  assert.ok(!text.some((t) => /FINAL SCORE 90/.test(t)));
+});
+
+test('the screen is drawn after everything else, including the display', () => {
+  const ctx = stubContext();
+  render(ctx, ATLAS, over());
+
+  const ops = ctx.calls.map((c) => c.op);
+  const wash = ops.indexOf('fillRect');
+  assert.ok(wash > ops.lastIndexOf('drawImage'), 'after every sprite');
+
+  const hudText = ctx.calls.findIndex((c) => c.op === 'fillText');
+  assert.ok(wash > hudText, 'after the heads-up display, so the HUD dims too');
+});
+
+test('no screen is drawn while playing, sinking or dying', () => {
+  for (const phase of [PHASES.PLAYING, PHASES.SINKING, PHASES.DYING]) {
+    const ctx = stubContext();
+    render(ctx, ATLAS, Object.assign(createState(), { phase: phase, phaseElapsed: 0 }));
+    assert.ok(!ctx.calls.some((c) => c.op === 'fillRect'), `no wash while ${phase}`);
+    const text = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+    assert.ok(!text.some((t) => /GAME OVER/.test(t)), `no game over text while ${phase}`);
+  }
+});
+
+test('the screen disappears when a new run starts', () => {
+  const input = createInput();
+  pressKey(input, 'Enter');
+  const restarted = update(over(), 1 / 60, input);
+  assert.equal(restarted.phase, PHASES.PLAYING);
+
+  const ctx = stubContext();
+  render(ctx, ATLAS, restarted);
+  assert.ok(!ctx.calls.some((c) => c.op === 'fillRect'), 'the wash is gone');
+});
+
+test('the scene is still drawn beneath the wash', () => {
+  const ctx = stubContext();
+  render(ctx, ATLAS, over());
+  const draws = ctx.calls.filter((c) => c.op === 'drawImage');
+  assert.equal(draws.length, COLS * ROWS + HAZARD_COUNT + 1,
+    'board, traffic and the player are all still drawn');
 });
 
 /* --- frame composition -------------------------------------------------- */

@@ -54,6 +54,10 @@ const POINTS_GOAL = 50;
 const GOAL_ROW = 0;
 
 const HUD_COLOR = '#f0e0b0';
+// The wash keeps the defeat scene visible beneath the text. DECISIONS.md gap 17.
+const OVERLAY_WASH = 'rgba(8, 10, 14, 0.66)';
+const OVERLAY_FONT = '10px monospace';
+const OVERLAY_SMALL_FONT = '7px monospace';
 const HUD_FONT = '8px monospace';
 const HUD_MARGIN = 2;
 const STARTING_LIVES = 3;
@@ -139,6 +143,12 @@ const KEY_DIRECTIONS = {
   ArrowRight: 'right',
 };
 
+// Keys that start a new run once the game is over. Held in their own slot rather
+// than routed through the direction slot, whose consumers all assume a direction.
+// These are `event.key` values: the space bar reports ' ', not 'Space', which is
+// its `event.code`. Only spellings a modern browser actually produces are listed.
+const RESTART_KEYS = { Enter: true, ' ': true };
+
 /* =============================================================================
  * 2. PURE LOGIC  -- no canvas, no document, no window below this line
  * ========================================================================== */
@@ -165,13 +175,20 @@ function createState() {
 // up during a modal beat and fire in a burst afterwards; a single slot discards
 // them, which is what a player expects. See design.md.
 function createInput() {
-  return { pending: null };
+  return { pending: null, restart: false };
 }
 
 function pressKey(input, key) {
   const direction = KEY_DIRECTIONS[key];
   if (direction) input.pending = direction;
+  else if (RESTART_KEYS[key]) input.restart = true;
   return input;
+}
+
+function takeRestart(input) {
+  const restart = input.restart;
+  input.restart = false;
+  return restart;
 }
 
 function takeDirection(input) {
@@ -361,6 +378,19 @@ function update(state, deltaSeconds, input) {
 
   next = resolvePhase(next);
 
+  // Drained on every update so a stray press made mid-run cannot latch and fire
+  // at the moment the player later dies, restarting the game out from under
+  // them. Acted on only while the game is over.
+  const restart = takeRestart(input);
+  if (restart && next.phase === PHASES.GAME_OVER) {
+    // Discard any direction buffered alongside the restart key. This is the one
+    // path that returns before the drain below, and without this a player
+    // mashing an arrow while hitting Enter leaves the spawn cell on the new
+    // run's next frame.
+    takeDirection(input);
+    return createState();
+  }
+
   if (!phaseAcceptsInput(next.phase)) {
     // Drain and throw away. Merely declining to drain is not the same thing:
     // the slot holds the most recent press, so a direction mashed mid-beat
@@ -512,6 +542,26 @@ function drawHud(ctx, state) {
   ctx.fillText('LIVES ' + state.lives, COLS * TILE - HUD_MARGIN, TILE / 2);
 }
 
+// A translucent wash over the whole board, then three centred lines. Drawn after
+// the heads-up display as well as the board: the HUD sits over row 0 and would
+// otherwise read at full brightness through the wash.
+function drawGameOver(ctx, state) {
+  ctx.fillStyle = OVERLAY_WASH;
+  ctx.fillRect(0, 0, COLS * TILE, ROWS * TILE);
+
+  const middleX = (COLS * TILE) / 2;
+  ctx.fillStyle = HUD_COLOR;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.font = OVERLAY_FONT;
+  ctx.fillText('GAME OVER', middleX, (ROWS * TILE) / 2 - 14);
+  ctx.fillText('FINAL SCORE ' + state.score, middleX, (ROWS * TILE) / 2);
+
+  ctx.font = OVERLAY_SMALL_FONT;
+  ctx.fillText('PRESS ENTER OR SPACE', middleX, (ROWS * TILE) / 2 + 16);
+}
+
 // Painter's order: clear, background, hazards, player, display.
 function render(ctx, atlas, state) {
   ctx.clearRect(0, 0, COLS * TILE, ROWS * TILE);
@@ -519,6 +569,7 @@ function render(ctx, atlas, state) {
   drawHazards(ctx, atlas, state);
   drawPlayer(ctx, atlas, state);
   drawHud(ctx, state);
+  if (state.phase === PHASES.GAME_OVER) drawGameOver(ctx, state);
 }
 
 function drawLoadFailure(ctx) {
@@ -549,7 +600,7 @@ function boot(doc, win) {
 
   const input = createInput();
   w.addEventListener('keydown', function (event) {
-    if (!KEY_DIRECTIONS[event.key]) return;
+    if (!KEY_DIRECTIONS[event.key] && !RESTART_KEYS[event.key]) return;
     event.preventDefault();
     pressKey(input, event.key);
   });
@@ -601,15 +652,17 @@ if (typeof module !== 'undefined' && module.exports) {
     GOAL_ROW, STARTING_LIVES, TIME_EPSILON, LANES,
     DEATH_MS, DEATH_SECONDS, FLASH_MS, FLASH_SECONDS,
     FLASH_TOGGLE_MS, FLASH_TOGGLE_SECONDS,
-    DIRECTIONS, KEY_DIRECTIONS,
-    clamp, createState, createInput, pressKey, takeDirection,
+    DIRECTIONS, KEY_DIRECTIONS, RESTART_KEYS,
+    clamp, createState, createInput, pressKey, takeDirection, takeRestart,
     movePlayer, frameDelta, update, playerSprite, tick,
     enterPhase, scoreMove, respawn, resolveMove, resolvePhase,
     wrapDistance, createHazards, advanceHazard, advanceHazards,
     overlaps, playerBox, hazardBox, hits, hitBy, strikePlayer,
     phaseAcceptsInput, sinkProgress,
     HUD_COLOR, HUD_FONT, HUD_MARGIN,
-    setupContext, drawSprite, drawBoard, drawPlayer, drawHud, render,
+    OVERLAY_WASH, OVERLAY_FONT, OVERLAY_SMALL_FONT,
+    setupContext, drawSprite, drawBoard, drawPlayer, drawHud, drawGameOver,
+    render,
     snapTile, drawHazard, drawHazards, flashHidden,
     drawLoadFailure,
     boot,

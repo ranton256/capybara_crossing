@@ -106,6 +106,8 @@ most expensive available mistake on this project.
 | 14 | What the 100ms blink looks like | Silence | Fast strobe, four 25ms toggles | M4 |
 | 15 | Which frame a halted game draws | Silence | The defeat pose is held | M4 |
 | 16 | Does a fatal step still score | Silence | Yes, the row was reached | M4 |
+| 17 | What the game-over screen looks like | Silence | Dimmed board, centred text | M5 |
+| 18 | Does a new run reset the traffic | Silence | Yes, back to the starting layout | M5 |
 
 ---
 
@@ -519,6 +521,58 @@ watermark rule free of any knowledge of collision — the same separation that
 keeps the goal bonus composing rather than special-cased (see the M2 design).
 Suppressing the award would put a collision test inside the scoring path for a
 10-point edge case.
+
+---
+
+### 17. What the game-over screen looks like
+
+**What the spec says.** "The game state transitions from active gameplay to a
+'Game Over' screen" and "the final score is displayed". Nothing describes it.
+
+**Why it matters.** It is the last thing a player sees, and it is drawn over a
+scene that already means something: gap 15 leaves the capybara down in its defeat
+pose with traffic still flowing past it.
+
+**Decision.** A translucent dark wash over the whole board, then `GAME OVER`, the
+final score, and the restart prompt, centred.
+
+```
++------------------------------------------+
+| SCORE 90                        LIVES 0  |
+|##########################################|
+|#####          GAME OVER             #####|
+|#####        FINAL SCORE 90          #####|
+|#####   PRESS ENTER OR SPACE         #####|
+|##########################################|
++------------------------------------------+
+```
+
+**Rationale.** The wash makes text legible over busy pixel art while keeping the
+defeat scene visible underneath, so the screen explains a picture the player can
+still see rather than replacing it. A solid panel was considered and hides more
+of that scene for legibility it does not need; plain text with no wash competes
+with the artwork it sits on.
+
+---
+
+### 18. Whether a new run resets the traffic
+
+**What the spec says.** "Pressing Enter or Space starts a new run." It does not
+say what a run comprises.
+
+**Why it matters.** The lanes are world state rather than player state, so they
+sit on the boundary of what "new run" covers. Spacing is preserved either way —
+gaps cannot drift (gap 10) — so this is about whether two runs start alike.
+
+**Decision.** A new run resets the hazards to their starting layout, alongside
+the player, score, lives and watermark.
+
+**Rationale.** Every run then begins from exactly the board the first one did,
+which is worth more in a tutorial game than visual continuity: a player learning
+the timing of the first crossing gets the same problem each time. The cost is
+that the lanes visibly jump at the moment of restart, which is acceptable because
+the screen is being dismissed in the same frame and the whole board is changing
+anyway.
 
 ---
 

@@ -178,15 +178,20 @@ test('the four arrow keys have their default action suppressed', () => {
   }
 });
 
-test('other keys keep their default action and move nothing', () => {
+test('the restart keys are suppressed too, but nothing else is', () => {
+  // Space scrolls the page by default, which would carry the board out of view
+  // at the moment the player presses it to restart.
   const env = loaded();
   boot(env.doc, env.win);
   runFrame(env, 0);
-  for (const key of ['Enter', ' ', 'a', 'Tab']) {
-    assert.equal(press(env, key), false, `${key} was not suppressed`);
+  for (const key of ['Enter', ' ']) {
+    assert.equal(press(env, key), true, `${key} was suppressed`);
+  }
+  for (const key of ['a', 'Tab', 'Escape']) {
+    assert.equal(press(env, key), false, `${key} kept its default action`);
   }
   runFrame(env, 16);
-  assert.equal(playerRow(env), 6, 'the player did not move');
+  assert.equal(playerRow(env), 6, 'and none of them moved the player');
 });
 
 test('only the most recent press survives to the next frame', () => {
@@ -276,6 +281,52 @@ test('the sinking sprite shrinks monotonically through the real loop', () => {
     assert.ok(heights[i] < heights[i - 1], `frame ${i} drew less than frame ${i - 1}`);
   }
   assert.ok(heights[heights.length - 1] < 1, 'nearly submerged by the last frame');
+});
+
+/* --- losing and restarting through the real loop -------------------------- */
+
+test('a whole game can be lost and restarted through the boot loop', () => {
+  const env = loaded();
+  boot(env.doc, env.win);
+  let now = 0;
+  const step = () => { now += 1000 / 60; runFrame(env, now); };
+  const drawn = () => env.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+
+  step();
+  assert.ok(drawn().some((t) => /LIVES 3/.test(t)), 'three lives to begin with');
+
+  // Walk into the lanes over and over until the lives are gone. Each pass either
+  // crosses safely or dies; either way the run advances toward an ending.
+  for (let i = 0; i < 400 && !drawn().some((t) => /GAME OVER/.test(t)); i++) {
+    press(env, 'ArrowUp');
+    step();
+  }
+
+  const ended = drawn();
+  assert.ok(ended.some((t) => /GAME OVER/.test(t)), 'the game reached its ending');
+  assert.ok(ended.some((t) => /LIVES 0/.test(t)), 'with no lives left');
+  assert.ok(ended.some((t) => /FINAL SCORE/.test(t)), 'and a final score');
+
+  // The wash is drawn over the board rather than instead of it.
+  const mark = env.calls.length;
+  step();
+  const frame = env.calls.slice(mark);
+  assert.ok(frame.some((c) => c.op === 'drawImage'), 'board and traffic still drawn');
+  assert.ok(frame.some((c) => c.op === 'fillRect'), 'under a wash');
+
+  // Enter starts a new run. Take a fresh mark, because env.calls accumulates
+  // across every frame and a trailing slice would still hold the ended game.
+  press(env, 'Enter');
+  const restartMark = env.calls.length;
+  step();
+  const newRun = env.calls.slice(restartMark);
+  const newRunText = newRun.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+
+  assert.ok(!newRunText.some((t) => /GAME OVER/.test(t)), 'the screen is gone');
+  assert.ok(!newRun.some((c) => c.op === 'fillRect'), 'and so is the wash');
+  assert.equal(playerRow(env), 6, 'back at the spawn row');
+  assert.ok(newRunText.some((t) => /LIVES 3/.test(t)), 'with three lives again');
+  assert.ok(newRunText.some((t) => /SCORE 0/.test(t)), 'and a cleared score');
 });
 
 /* --- the export guard, evaluated as a browser would ---------------------- */
