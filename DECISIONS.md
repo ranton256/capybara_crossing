@@ -102,6 +102,8 @@ most expensive available mistake on this project.
 | 10 | 3 ATVs do not divide a 13-tile wrap | Arithmetic | Even spacing, fractional starts | M3 |
 | 11 | Two ATV sprites, three ATVs | Silence | Alternate red and blue | M3 |
 | 12 | Does traffic move while not playing | Silence | Yes, motion is phase-independent | M3 |
+| 13 | Where M4 stops at zero lives | Scope | M4 adds the GAME_OVER state; M5 adds its screen | M4 |
+| 14 | What the 100ms blink looks like | Silence | Fast strobe, four 25ms toggles | M4 |
 
 ---
 
@@ -409,6 +411,69 @@ freezing them would make the beat read as a pause in the game rather than a beat
 within it. It also means hazard motion has exactly one rule instead of one rule
 plus an exception, which matters in M4 where a frozen lane during the death beat
 would let the player respawn into a hazard that never moved.
+
+---
+
+### 13. Where M4 stops at zero lives
+
+**What the spec says.** The zero-life scenario runs together three things: the
+count decreasing to 0, the state transitioning "from active gameplay to a Game
+Over screen", and the final score being displayed with Enter or Space starting a
+new run. The milestone plan puts the screen and the restart in M5.
+
+**Why it matters.** Splitting a single written scenario across two milestones
+needs a stated seam, or M4 ships something that looks broken and M5 spends its
+time undoing it.
+
+**Decision.** M4 introduces `GAME_OVER` as a state. The last death enters it, it
+halts play and ignores input, and lives never go below 0. M5 adds only
+presentation: the screen, the final score, and Enter or Space to start a new run.
+
+```
+  PLAYING --collision--> DYING (550ms)
+                          |
+            lives>0  <----+----> lives==0
+               |                    |
+            respawn              GAME_OVER
+               |                 halts, ignores input
+            PLAYING
+```
+
+**Rationale.** The state machine gains its third and final member in the
+milestone that has the reason for it, and M5 becomes purely presentational rather
+than structural. Freezing on the death pose instead was rejected because a frozen
+screen reads as a hang, and because M5 would then have to undo M4's behaviour
+rather than build on it. Respawning forever was rejected because it ships a lives
+counter that visibly stops meaning anything at 0.
+
+---
+
+### 14. What the hundred-millisecond blink looks like
+
+**What the spec says.** Fixed Parameters give `hit flash 100ms`. Gap 2 decided
+the capybara blinks rather than the screen flashing. Neither says what the blink
+is.
+
+**Decision.** A fast strobe: alternate drawn and not-drawn every 25ms across the
+first 100ms of the 550ms death beat, then hold the defeat pose for the remaining
+450ms.
+
+```
+0ms        100ms                    550ms
+|-----------|------------------------|
+ on off on off   defeat pose held
+ |  |  |  |
+ 25ms each
+```
+
+**Rationale.** The impact wants to be unmistakable, and 100ms is short enough
+that a strobe registers as one event rather than as flicker. A single 100ms hide
+was considered and is calmer, but easy to miss entirely at a glance, which
+defeats the purpose of having a flash parameter at all.
+
+**Note.** Both the 25ms toggle period and the 100ms window are measured from the
+same accumulated phase clock the sink beat uses, so the flash is refresh-rate
+independent for the same reason the beat is.
 
 ---
 
