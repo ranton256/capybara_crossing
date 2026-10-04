@@ -76,3 +76,14 @@ openspec/           # specs and archived changes
 ```
 
 Gameplay behavior is specified in `Capybara Crossing.md`. Remaining optional items there (timer, audio) stay parked until requested.
+
+## License and third-party files
+
+This repository is MIT licensed — see [LICENSE](LICENSE). The spec, the game
+code, the assets, and the tooling here are original work.
+
+`.claude/skills/openspec-*/` and `.claude/commands/opsx/` are **not** original:
+they are installed by the [OpenSpec](https://github.com/Fission-AI/openspec)
+CLI and are MIT licensed, Copyright (c) 2024 OpenSpec Contributors. They are
+kept in the repository so the change workflow that built this branch can be
+read and re-run.
