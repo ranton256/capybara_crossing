@@ -65,3 +65,14 @@ No server, no build step, no `npm install` required to play.
 from this same spec. **They are full solutions.** Read them after you have
 built your own, not before — comparing your approach to theirs is worth far
 more than copying either.
+
+## License and third-party files
+
+This repository is MIT licensed — see [LICENSE](LICENSE). The spec, the game
+code, the assets, and the tooling here are original work.
+
+`.claude/skills/openspec-*/` and `.claude/commands/opsx/` are **not** original:
+they are installed by the [OpenSpec](https://github.com/Fission-AI/openspec)
+CLI and are MIT licensed, Copyright (c) 2024 OpenSpec Contributors. They are
+kept in the repository so the change workflow that built this branch can be
+read and re-run.
