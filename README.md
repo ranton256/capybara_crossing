@@ -95,3 +95,14 @@ Behavior is specified in `Capybara Crossing.md`; `ROADMAP.md` maps each mileston
 to the spec section it implements. The optional features there — countdown timer,
 difficulty scaling, audio, and localStorage high scores — are deliberately not
 implemented.
+
+## License and third-party files
+
+This repository is MIT licensed — see [LICENSE](LICENSE). The spec, the game
+code, the assets, and the tooling here are original work.
+
+`.claude/skills/openspec-*/` and `.claude/commands/opsx/` are **not** original:
+they are installed by the [OpenSpec](https://github.com/Fission-AI/openspec)
+CLI and are MIT licensed, Copyright (c) 2024 OpenSpec Contributors. They are
+kept in the repository so the change workflow that built this branch can be
+read and re-run.
